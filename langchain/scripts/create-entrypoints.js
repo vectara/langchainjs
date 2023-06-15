@@ -70,6 +70,7 @@ const entrypoints = {
   "vectorstores/redis": "vectorstores/redis",
   "vectorstores/singlestore": "vectorstores/singlestore",
   "vectorstores/tigris": "vectorstores/tigris",
+  "vectorstores/vectara": "vectorstores/vectara",
   // text_splitter
   text_splitter: "text_splitter",
   // memory

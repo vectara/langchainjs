@@ -1,3 +1,8 @@
+import fs from "fs";
+import path from "path";
+import FormData from "form-data";
+// eslint-disable-next-line import/no-extraneous-dependencies
+import nodeFetch from "node-fetch";
 import { Document } from "../document.js";
 import { Embeddings } from "../embeddings/base.js";
 import { FakeEmbeddings } from "../embeddings/fake.js";
@@ -161,6 +166,61 @@ export class VectaraStore extends VectorStore {
     if (this.verbose) {
       console.log(`Added ${countAdded} documents to Vectara`);
     }
+  }
+
+  async addFiles(
+    file_paths: string[],
+    metadata: Record<string, unknown> | undefined = undefined
+  ) {
+    let numDocs = 0;
+    for (const [index, file] of file_paths.entries()) {
+      if (!fs.existsSync(path.resolve(file))) {
+        console.error(`File ${file} does not exist, skipping`);
+        continue;
+      }
+      const md = metadata ? metadata[index] : {};
+
+      try {
+        const f = fs.createReadStream(path.join(process.cwd(), file));
+        const data = new FormData();
+        data.append("file", f, file);
+        data.append("doc-metadata", JSON.stringify(md));
+
+        const response = await nodeFetch(
+          `https://api.vectara.io/v1/upload?c=${this.customerId}&o=${this.corpusId}`,
+          {
+            method: "POST",
+            body: data,
+            headers: {
+              "x-api-key": this.apiKey,
+              ...data.getHeaders(),
+            },
+          }
+        );
+
+        const result = await response.json();
+        const statusCode = response.status;
+
+        if (statusCode !== 200 && statusCode !== 409) {
+          const error = new Error(
+            `Vectara API returned status code ${statusCode}: ${result}`
+          );
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (error as any).code = 500;
+          throw error;
+        } else {
+          numDocs += 1;
+        }
+      } catch (error) {
+        console.log(error);
+      }
+    }
+
+    if (this.verbose) {
+      console.log(`Uploaded ${file_paths.length} files to Vectara`);
+    }
+
+    return numDocs;
   }
 
   async similaritySearchWithScore(

@@ -1,5 +1,7 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable no-process-env */
-import { test, expect, beforeAll } from "@jest/globals";
+import fs from "fs";
+import { expect, beforeAll } from "@jest/globals";
 import { FakeEmbeddings } from "../../embeddings/fake.js";
 import { Document } from "../../document.js";
 import { VectaraLibArgs, VectaraStore } from "../vectara.js";
@@ -153,6 +155,45 @@ describe("VectaraStore", () => {
           result.metadata.find((m: any) => m.name === "lang")?.value === "eng"
       );
       expect(hasEnglish).toBe(false);
+    });
+
+    it("addFiles", async () => {
+      const docs = getDocs();
+      const englishOneContent = docs[0].pageContent;
+      const frenchOneContent = docs[2].pageContent;
+
+      // Create temporary files for test
+      const files = [
+        { filename: "englishOne.txt", content: englishOneContent },
+        { filename: "frenchOne.txt", content: frenchOneContent },
+      ];
+
+      // Using async/await and the helper function to create files
+      for (const file of files) {
+        fs.writeFile(file.filename, file.content, (err) => {
+          if (err) throw err;
+        });
+      }
+
+      const results = await store.addFiles([
+        "./englishOne.txt",
+        "./frenchOne.txt",
+        "../examples/src/document_loaders/example_data/bitcoin.pdf",
+      ]);
+
+      // Delete temporary files
+      for (const file of files) {
+        fs.unlink(file.filename, (err) => {
+          if (err) throw err;
+        });
+      }
+
+      expect(results).toEqual(3);
+      const searchResults = await store.similaritySearch("What is bitcoin");
+      expect(searchResults.length).toBeGreaterThan(0);
+      expect(searchResults[0].pageContent).toContain(
+        "A Peer-to-Peer Electronic Cash System"
+      );
     });
   });
 });

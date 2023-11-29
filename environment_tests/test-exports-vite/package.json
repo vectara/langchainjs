@@ -10,8 +10,10 @@
     "test": "tsc"
   },
   "dependencies": {
-    "langchain": "workspace:*",
-    "langchain-core": "workspace:*"
+    "@langchain/anthropic": "workspace:*",
+    "@langchain/core": "workspace:*",
+    "@langchain/openai": "workspace:*",
+    "langchain": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.0.0",

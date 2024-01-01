@@ -1,8 +1,7 @@
 import { getEnvironmentVariable } from "@langchain/core/utils/env";
 import { Embeddings, type EmbeddingsParams } from "@langchain/core/embeddings";
-import MistralClient, {
-  type EmbeddingsResult as MistralAIEmbeddingsResult,
-} from "@mistralai/mistralai";
+import { type EmbeddingsResult as MistralAIEmbeddingsResult } from "@mistralai/mistralai";
+import { chunkArray } from "@langchain/core/utils/chunk_array";
 
 /**
  * Interface for MistralAIEmbeddings parameters. Extends EmbeddingsParams and
@@ -41,15 +40,6 @@ export interface MistralAIEmbeddingsParams extends EmbeddingsParams {
   stripNewLines?: boolean;
 }
 
-export const chunkArray = <T>(arr: T[], chunkSize: number) =>
-  arr.reduce((chunks, elem, index) => {
-    const chunkIndex = Math.floor(index / chunkSize);
-    const chunk = chunks[chunkIndex] || [];
-    // eslint-disable-next-line no-param-reassign
-    chunks[chunkIndex] = chunk.concat([elem]);
-    return chunks;
-  }, [] as T[][]);
-
 /**
  * Class for generating embeddings using the MistralAI API.
  */
@@ -57,8 +47,6 @@ export class MistralAIEmbeddings
   extends Embeddings
   implements MistralAIEmbeddingsParams
 {
-  client = new MistralClient();
-
   modelName = "mistral-embed";
 
   encodingFormat = "float";
@@ -67,13 +55,18 @@ export class MistralAIEmbeddings
 
   stripNewLines = true;
 
+  apiKey: string;
+
+  endpoint?: string;
+
   constructor(fields?: Partial<MistralAIEmbeddingsParams>) {
     super(fields ?? {});
     const apiKey = fields?.apiKey ?? getEnvironmentVariable("MISTRAL_API_KEY");
     if (!apiKey) {
       throw new Error("API key missing for MistralAI, but it is required.");
     }
-    this.client = new MistralClient(apiKey, fields?.endpoint);
+    this.apiKey = apiKey;
+    this.endpoint = fields?.endpoint;
     this.modelName = fields?.modelName ?? this.modelName;
     this.encodingFormat = fields?.encodingFormat ?? this.encodingFormat;
     this.batchSize = fields?.batchSize ?? this.batchSize;
@@ -133,11 +126,18 @@ export class MistralAIEmbeddings
     input: string | Array<string>
   ): Promise<MistralAIEmbeddingsResult> {
     return this.caller.call(async () => {
-      const res = await this.client.embeddings({
+      const { MistralClient } = await this.imports();
+      const client = new MistralClient(this.apiKey, this.endpoint);
+      const res = await client.embeddings({
         model: this.modelName,
         input,
       });
       return res;
     });
+  }
+
+  async imports() {
+    const { default: MistralClient } = await import("@mistralai/mistralai");
+    return { MistralClient };
   }
 }

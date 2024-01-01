@@ -21,6 +21,20 @@ test("Test Google AI generation", async () => {
   expect(res).toBeTruthy();
 });
 
+test("Test Google AI generation with a stop sequence", async () => {
+  const model = new ChatGoogleGenerativeAI({
+    stopSequences: ["two", "2"],
+  });
+  const res = await model.invoke([
+    ["human", `What are the first three positive whole numbers?`],
+  ]);
+  console.log(JSON.stringify(res, null, 2));
+  expect(res).toBeTruthy();
+  expect(res.additional_kwargs.finishReason).toBe("STOP");
+  expect(res.content).not.toContain("2");
+  expect(res.content).not.toContain("two");
+});
+
 test("Test Google AI generation with a system message", async () => {
   const model = new ChatGoogleGenerativeAI({});
   const res = await model.generate([
@@ -58,4 +72,44 @@ test("Test Google AI multimodal generation", async () => {
   ]);
   console.log(JSON.stringify(res, null, 2));
   expect(res).toBeTruthy();
+});
+
+test("Test Google AI handleLLMNewToken callback", async () => {
+  const model = new ChatGoogleGenerativeAI({});
+  let tokens = "";
+  const res = await model.call(
+    [new HumanMessage("what is 1 + 1?")],
+    undefined,
+    [
+      {
+        handleLLMNewToken(token: string) {
+          tokens += token;
+        },
+      },
+    ]
+  );
+  console.log({ tokens });
+  const responseContent = typeof res.content === "string" ? res.content : "";
+  expect(tokens).toBe(responseContent);
+});
+
+test("Test Google AI handleLLMNewToken callback with streaming", async () => {
+  const model = new ChatGoogleGenerativeAI({});
+  let tokens = "";
+  const res = await model.stream([new HumanMessage("what is 1 + 1?")], {
+    callbacks: [
+      {
+        handleLLMNewToken(token: string) {
+          tokens += token;
+        },
+      },
+    ],
+  });
+  console.log({ tokens });
+  let responseContent = "";
+  for await (const streamItem of res) {
+    responseContent += streamItem.content;
+  }
+  console.log({ tokens });
+  expect(tokens).toBe(responseContent);
 });

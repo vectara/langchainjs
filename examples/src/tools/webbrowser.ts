@@ -1,6 +1,5 @@
 import { WebBrowser } from "langchain/tools/webbrowser";
-import { ChatOpenAI } from "langchain/chat_models/openai";
-import { OpenAIEmbeddings } from "langchain/embeddings/openai";
+import { ChatOpenAI, OpenAIEmbeddings } from "@langchain/openai";
 
 export async function run() {
   // this will not work with Azure OpenAI API yet
@@ -22,7 +21,7 @@ export async function run() {
 
   const browser = new WebBrowser({ model, embeddings });
 
-  const result = await browser.call(
+  const result = await browser.invoke(
     `"https://www.themarginalian.org/2015/04/09/find-your-bliss-joseph-campbell-power-of-myth","who is joseph campbell"`
   );
 

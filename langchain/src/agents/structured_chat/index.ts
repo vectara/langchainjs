@@ -1,27 +1,27 @@
-import { zodToJsonSchema } from "zod-to-json-schema";
-import { JsonSchema7ObjectType } from "zod-to-json-schema/src/parsers/object.js";
-
+import { zodToJsonSchema, JsonSchema7ObjectType } from "zod-to-json-schema";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import type {
   BaseLanguageModel,
   BaseLanguageModelInterface,
 } from "@langchain/core/language_models/base";
-import {
-  RunnablePassthrough,
-  RunnableSequence,
-} from "@langchain/core/runnables";
+import { RunnablePassthrough } from "@langchain/core/runnables";
 import type { BasePromptTemplate } from "@langchain/core/prompts";
-import { LLMChain } from "../../chains/llm_chain.js";
-import { PromptTemplate } from "../../prompts/prompt.js";
 import {
   BaseMessagePromptTemplate,
   ChatPromptTemplate,
   HumanMessagePromptTemplate,
   SystemMessagePromptTemplate,
-} from "../../prompts/chat.js";
-import { AgentStep } from "../../schema/index.js";
+  PromptTemplate,
+} from "@langchain/core/prompts";
+import { AgentStep } from "@langchain/core/agents";
+import { LLMChain } from "../../chains/llm_chain.js";
 import { Optional } from "../../types/type-utils.js";
-import { Agent, AgentArgs, OutputParserArgs } from "../agent.js";
+import {
+  Agent,
+  AgentArgs,
+  AgentRunnableSequence,
+  OutputParserArgs,
+} from "../agent.js";
 import { AgentInput } from "../types.js";
 import { StructuredChatOutputParserWithRetries } from "./outputParser.js";
 import { FORMAT_INSTRUCTIONS, PREFIX, SUFFIX } from "./prompt.js";
@@ -54,6 +54,7 @@ export type StructuredChatAgentInput = Optional<AgentInput, "outputParser">;
 /**
  * Agent that interoperates with Structured Tools using React logic.
  * @augments Agent
+ * @deprecated Use the {@link https://v02.api.js.langchain.com/functions/langchain_agents.createStructuredChatAgent.html | createStructuredChatAgent method instead}.
  */
 export class StructuredChatAgent extends Agent {
   static lc_name() {
@@ -244,6 +245,11 @@ export type CreateStructuredChatAgentParams = {
    * `tools`, `tool_names`, and `agent_scratchpad`.
    */
   prompt: BasePromptTemplate;
+  /**
+   * Whether to invoke the underlying model in streaming mode,
+   * allowing streaming of intermediate steps. Defaults to true.
+   */
+  streamRunnable?: boolean;
 };
 
 /**
@@ -306,6 +312,7 @@ export async function createStructuredChatAgent({
   llm,
   tools,
   prompt,
+  streamRunnable,
 }: CreateStructuredChatAgentParams) {
   const missingVariables = ["tools", "tool_names", "agent_scratchpad"].filter(
     (v) => !prompt.inputVariables.includes(v)
@@ -326,16 +333,23 @@ export async function createStructuredChatAgent({
   const llmWithStop = (llm as BaseLanguageModel).bind({
     stop: ["Observation"],
   });
-  const agent = RunnableSequence.from([
-    RunnablePassthrough.assign({
-      agent_scratchpad: (input: { steps: AgentStep[] }) =>
-        formatLogToString(input.steps),
-    }),
-    partialedPrompt,
-    llmWithStop,
-    StructuredChatOutputParserWithRetries.fromLLM(llm, {
-      toolNames,
-    }),
-  ]);
+  const agent = AgentRunnableSequence.fromRunnables(
+    [
+      RunnablePassthrough.assign({
+        agent_scratchpad: (input: { steps: AgentStep[] }) =>
+          formatLogToString(input.steps),
+      }),
+      partialedPrompt,
+      llmWithStop,
+      StructuredChatOutputParserWithRetries.fromLLM(llm, {
+        toolNames,
+      }),
+    ],
+    {
+      name: "StructuredChatAgent",
+      streamRunnable,
+      singleAction: true,
+    }
+  );
   return agent;
 }

@@ -1,8 +1,8 @@
 import { test, expect } from "@jest/globals";
-import { Document } from "../../document.js";
-import { BaseLLM } from "../../llms/base.js";
+import { Document } from "@langchain/core/documents";
+import { BaseLLM } from "@langchain/core/language_models/llms";
+import { LLMResult } from "@langchain/core/outputs";
 import { loadQAMapReduceChain } from "../question_answering/load.js";
-import { LLMResult } from "../../schema/index.js";
 import { loadSummarizationChain } from "../index.js";
 
 class FakeLLM extends BaseLLM {
@@ -44,7 +44,7 @@ test("Test MapReduceDocumentsChain", async () => {
     new Document({ pageContent: "ankush went to princeton" }),
   ];
 
-  const res = await chain.call({
+  const res = await chain.invoke({
     input_documents: docs,
     question: "Where did harrison go to college",
   });
@@ -69,7 +69,7 @@ test("Test MapReduceDocumentsChain with content above maxTokens and intermediate
     new Document({ pageContent: bString }),
   ];
 
-  const res = await chain.call({
+  const res = await chain.invoke({
     input_documents: docs,
     question: "Is the letter c present in the document",
   });

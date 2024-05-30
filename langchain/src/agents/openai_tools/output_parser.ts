@@ -1,31 +1,19 @@
 import type { OpenAIClient } from "@langchain/openai";
-import {
-  AgentAction,
-  AgentFinish,
-  AgentStep,
-  BaseMessage,
-  ChatGeneration,
-  isBaseMessage,
-} from "../../schema/index.js";
+import { AgentAction, AgentFinish } from "@langchain/core/agents";
+import { BaseMessage, isBaseMessage } from "@langchain/core/messages";
+import { ChatGeneration } from "@langchain/core/outputs";
+import { OutputParserException } from "@langchain/core/output_parsers";
 import { AgentMultiActionOutputParser } from "../types.js";
-import { OutputParserException } from "../../schema/output_parser.js";
+import {
+  ToolsAgentAction,
+  ToolsAgentStep,
+} from "../tool_calling/output_parser.js";
 
-/**
- * Type that represents an agent action with an optional message log.
- */
-export type ToolsAgentAction = AgentAction & {
-  toolCallId: string;
-  messageLog?: BaseMessage[];
-};
-
-export type ToolsAgentStep = AgentStep & {
-  action: ToolsAgentAction;
-};
+export type { ToolsAgentAction, ToolsAgentStep };
 
 /**
  * @example
  * ```typescript
- *
  * const prompt = ChatPromptTemplate.fromMessages([
  *   ["ai", "You are a helpful assistant"],
  *   ["human", "{input}"],
@@ -42,7 +30,7 @@ export type ToolsAgentStep = AgentStep & {
  *   new ChatOpenAI({
  *     modelName: "gpt-3.5-turbo-1106",
  *     temperature: 0,
- *   }).bind({ tools: tools.map(formatToOpenAITool) }),
+ *   }).bind({ tools: tools.map(convertToOpenAITool) }),
  *   new OpenAIToolsAgentOutputParser(),
  * ]).withConfig({ runName: "OpenAIToolsAgent" });
  *
@@ -50,7 +38,6 @@ export type ToolsAgentStep = AgentStep & {
  *   input:
  *     "What is the sum of the current temperature in San Francisco, New York, and Tokyo?",
  * });
- *
  * ```
  */
 export class OpenAIToolsAgentOutputParser extends AgentMultiActionOutputParser {

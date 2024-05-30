@@ -24,6 +24,9 @@ import {
 } from "./base.js";
 import type { RunnableConfig } from "../runnables/config.js";
 import type { BaseCache } from "../caches.js";
+import { isStreamEventsHandler } from "../tracers/event_stream.js";
+import { isLogStreamHandler } from "../tracers/log_stream.js";
+import { concat } from "../utils/stream.js";
 
 export type SerializedLLM = {
   _model: string;
@@ -49,10 +52,11 @@ interface LLMGenerateCachedParameters<
   llmStringKey: string;
   parsedOptions: T["ParsedCallOptions"];
   handledOptions: RunnableConfig;
+  runId?: string;
 }
 
 /**
- * LLM Wrapper. Provides an {@link call} (an {@link generate}) function that takes in a prompt (or prompts) and returns a string.
+ * LLM Wrapper. Takes in a prompt (or prompts) and returns a string.
  */
 export abstract class BaseLLM<
   CallOptions extends BaseLLMCallOptions = BaseLLMCallOptions
@@ -140,7 +144,7 @@ export abstract class BaseLLM<
       const runManagers = await callbackManager_?.handleLLMStart(
         this.toJSON(),
         [prompt.toString()],
-        undefined,
+        runnableConfig.runId,
         undefined,
         extra,
         undefined,
@@ -268,30 +272,67 @@ export abstract class BaseLLM<
     const runManagers = await callbackManager_?.handleLLMStart(
       this.toJSON(),
       prompts,
-      undefined,
+      handledOptions.runId,
       undefined,
       extra,
       undefined,
       undefined,
       handledOptions?.runName
     );
+    // Even if stream is not explicitly called, check if model is implicitly
+    // called from streamEvents() or streamLog() to get all streamed events.
+    // Bail out if _streamResponseChunks not overridden
+    const hasStreamingHandler = !!runManagers?.[0].handlers.find((handler) => {
+      return isStreamEventsHandler(handler) || isLogStreamHandler(handler);
+    });
+    let output: LLMResult;
+    if (
+      hasStreamingHandler &&
+      prompts.length === 1 &&
+      this._streamResponseChunks !== BaseLLM.prototype._streamResponseChunks
+    ) {
+      try {
+        const stream = await this._streamResponseChunks(
+          prompts[0],
+          parsedOptions,
+          runManagers?.[0]
+        );
+        let aggregated;
+        for await (const chunk of stream) {
+          if (aggregated === undefined) {
+            aggregated = chunk;
+          } else {
+            aggregated = concat(aggregated, chunk);
+          }
+        }
+        if (aggregated === undefined) {
+          throw new Error("Received empty response from chat model call.");
+        }
+        output = { generations: [[aggregated]], llmOutput: {} };
+        await runManagers?.[0].handleLLMEnd(output);
+      } catch (e) {
+        await runManagers?.[0].handleLLMError(e);
+        throw e;
+      }
+    } else {
+      try {
+        output = await this._generate(prompts, parsedOptions, runManagers?.[0]);
+      } catch (err) {
+        await Promise.all(
+          (runManagers ?? []).map((runManager) =>
+            runManager?.handleLLMError(err)
+          )
+        );
+        throw err;
+      }
 
-    let output;
-    try {
-      output = await this._generate(prompts, parsedOptions, runManagers?.[0]);
-    } catch (err) {
+      const flattenedOutputs: LLMResult[] = this._flattenLLMResult(output);
       await Promise.all(
-        (runManagers ?? []).map((runManager) => runManager?.handleLLMError(err))
+        (runManagers ?? []).map((runManager, i) =>
+          runManager?.handleLLMEnd(flattenedOutputs[i])
+        )
       );
-      throw err;
     }
-
-    const flattenedOutputs: LLMResult[] = this._flattenLLMResult(output);
-    await Promise.all(
-      (runManagers ?? []).map((runManager, i) =>
-        runManager?.handleLLMEnd(flattenedOutputs[i])
-      )
-    );
     const runIds = runManagers?.map((manager) => manager.runId) || undefined;
     // This defines RUN_KEY as a non-enumerable property on the output object
     // so that it is not serialized when the output is stringified, and so that
@@ -309,6 +350,7 @@ export abstract class BaseLLM<
     llmStringKey,
     parsedOptions,
     handledOptions,
+    runId,
   }: LLMGenerateCachedParameters<typeof this>): Promise<
     LLMResult & { missingPromptIndices: number[] }
   > {
@@ -330,7 +372,7 @@ export abstract class BaseLLM<
     const runManagers = await callbackManager_?.handleLLMStart(
       this.toJSON(),
       prompts,
-      undefined,
+      runId,
       undefined,
       extra,
       undefined,
@@ -435,6 +477,7 @@ export abstract class BaseLLM<
       llmStringKey,
       parsedOptions: callOptions,
       handledOptions: runnableConfig,
+      runId: runnableConfig.runId,
     });
 
     let llmOutput = {};
@@ -458,6 +501,7 @@ export abstract class BaseLLM<
   }
 
   /**
+   * @deprecated Use .invoke() instead. Will be removed in 0.2.0.
    * Convenience wrapper for {@link generate} that takes in a single string prompt and returns a single string output.
    */
   async call(
@@ -470,6 +514,8 @@ export abstract class BaseLLM<
   }
 
   /**
+   * @deprecated Use .invoke() instead. Will be removed in 0.2.0.
+   *
    * This method is similar to `call`, but it's used for making predictions
    * based on the input text.
    * @param text Input text for the prediction.
@@ -486,6 +532,8 @@ export abstract class BaseLLM<
   }
 
   /**
+   * @deprecated Use .invoke() instead. Will be removed in 0.2.0.
+   *
    * This method takes a list of messages, options, and callbacks, and
    * returns a predicted message.
    * @param messages A list of messages for the prediction.

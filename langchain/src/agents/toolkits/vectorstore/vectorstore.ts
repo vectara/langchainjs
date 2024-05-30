@@ -1,8 +1,7 @@
 import type { BaseLanguageModelInterface } from "@langchain/core/language_models/base";
 import type { VectorStoreInterface } from "@langchain/core/vectorstores";
-import { ToolInterface } from "@langchain/core/tools";
+import { ToolInterface, BaseToolkit } from "@langchain/core/tools";
 import { VectorStoreQATool } from "../../../tools/vectorstore.js";
-import { Toolkit } from "../base.js";
 import { ZeroShotCreatePromptArgs, ZeroShotAgent } from "../../mrkl/index.js";
 import { VECTOR_PREFIX, VECTOR_ROUTER_PREFIX } from "./prompt.js";
 import { SUFFIX } from "../../mrkl/prompt.js";
@@ -40,7 +39,7 @@ export interface VectorStoreInfo {
  * console.log(`Got output ${result.output}`);
  * ```
  */
-export class VectorStoreToolkit extends Toolkit {
+export class VectorStoreToolkit extends BaseToolkit {
   tools: ToolInterface[];
 
   llm: BaseLanguageModelInterface;
@@ -69,7 +68,7 @@ export class VectorStoreToolkit extends Toolkit {
  * It initializes multiple vector store QA tools based on the provided
  * vector store information and language model.
  */
-export class VectorStoreRouterToolkit extends Toolkit {
+export class VectorStoreRouterToolkit extends BaseToolkit {
   tools: ToolInterface[];
 
   vectorStoreInfos: VectorStoreInfo[];

@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import { AgentAction, AgentFinish } from "../agents.js";
-import type { ChainValues } from "../utils/types.js";
+import type { ChainValues } from "../utils/types/index.js";
 import { LLMResult } from "../outputs.js";
 import {
   BaseCallbackHandler,
@@ -9,10 +9,7 @@ import {
   NewTokenIndices,
 } from "./base.js";
 import { ConsoleCallbackHandler } from "../tracers/console.js";
-import {
-  getTracingCallbackHandler,
-  getTracingV2CallbackHandler,
-} from "../tracers/initialize.js";
+import { getTracingV2CallbackHandler } from "../tracers/initialize.js";
 import { type BaseMessage, getBufferString } from "../messages/index.js";
 import { getEnvironmentVariable } from "../utils/env.js";
 import {
@@ -22,6 +19,20 @@ import {
 import { consumeCallback } from "./promises.js";
 import { Serialized } from "../load/serializable.js";
 import type { DocumentInterface } from "../documents/document.js";
+
+if (
+  /* #__PURE__ */ getEnvironmentVariable("LANGCHAIN_TRACING_V2") === "true" &&
+  /* #__PURE__ */ getEnvironmentVariable("LANGCHAIN_CALLBACKS_BACKGROUND") !==
+    "true"
+) {
+  /* #__PURE__ */ console.warn(
+    [
+      "[WARN]: You have enabled LangSmith tracing without backgrounding callbacks.",
+      "[WARN]: If you are not using a serverless environment where you must wait for tracing calls to finish,",
+      `[WARN]: we suggest setting "process.env.LANGCHAIN_CALLBACKS_BACKGROUND=true" to avoid additional latency.`,
+    ].join("\n")
+  );
+}
 
 type BaseCallbackManagerMethods = {
   [K in keyof CallbackHandlerMethods]?: (
@@ -61,6 +72,12 @@ export interface BaseCallbackConfig {
    * Tags are passed to all callbacks, metadata is passed to handle*Start callbacks.
    */
   callbacks?: Callbacks;
+
+  /**
+   * Unique identifier for the tracer run for this call. If not provided, a new UUID
+   * will be generated.
+   */
+  runId?: string;
 }
 
 export function parseCallbackConfigArg(
@@ -96,7 +113,7 @@ export abstract class BaseCallbackManager {
 class BaseRunManager {
   constructor(
     public readonly runId: string,
-    protected readonly handlers: BaseCallbackHandler[],
+    public readonly handlers: BaseCallbackHandler[],
     protected readonly inheritableHandlers: BaseCallbackHandler[],
     protected readonly tags: string[],
     protected readonly inheritableTags: string[],
@@ -120,6 +137,9 @@ class BaseRunManager {
             console.error(
               `Error in handler ${handler.constructor.name}, handleText: ${err}`
             );
+            if (handler.raiseError) {
+              throw err;
+            }
           }
         }, handler.awaitHandlers)
       )
@@ -162,6 +182,9 @@ export class CallbackManagerForRetrieverRun
               console.error(
                 `Error in handler ${handler.constructor.name}, handleRetriever`
               );
+              if (handler.raiseError) {
+                throw err;
+              }
             }
           }
         }, handler.awaitHandlers)
@@ -185,6 +208,9 @@ export class CallbackManagerForRetrieverRun
               console.error(
                 `Error in handler ${handler.constructor.name}, handleRetrieverError: ${error}`
               );
+              if (handler.raiseError) {
+                throw err;
+              }
             }
           }
         }, handler.awaitHandlers)
@@ -222,6 +248,9 @@ export class CallbackManagerForLLMRun
               console.error(
                 `Error in handler ${handler.constructor.name}, handleLLMNewToken: ${err}`
               );
+              if (handler.raiseError) {
+                throw err;
+              }
             }
           }
         }, handler.awaitHandlers)
@@ -245,6 +274,9 @@ export class CallbackManagerForLLMRun
               console.error(
                 `Error in handler ${handler.constructor.name}, handleLLMError: ${err}`
               );
+              if (handler.raiseError) {
+                throw err;
+              }
             }
           }
         }, handler.awaitHandlers)
@@ -268,6 +300,9 @@ export class CallbackManagerForLLMRun
               console.error(
                 `Error in handler ${handler.constructor.name}, handleLLMEnd: ${err}`
               );
+              if (handler.raiseError) {
+                throw err;
+              }
             }
           }
         }, handler.awaitHandlers)
@@ -315,6 +350,9 @@ export class CallbackManagerForChainRun
               console.error(
                 `Error in handler ${handler.constructor.name}, handleChainError: ${err}`
               );
+              if (handler.raiseError) {
+                throw err;
+              }
             }
           }
         }, handler.awaitHandlers)
@@ -345,6 +383,9 @@ export class CallbackManagerForChainRun
               console.error(
                 `Error in handler ${handler.constructor.name}, handleChainEnd: ${err}`
               );
+              if (handler.raiseError) {
+                throw err;
+              }
             }
           }
         }, handler.awaitHandlers)
@@ -368,6 +409,9 @@ export class CallbackManagerForChainRun
               console.error(
                 `Error in handler ${handler.constructor.name}, handleAgentAction: ${err}`
               );
+              if (handler.raiseError) {
+                throw err;
+              }
             }
           }
         }, handler.awaitHandlers)
@@ -391,6 +435,9 @@ export class CallbackManagerForChainRun
               console.error(
                 `Error in handler ${handler.constructor.name}, handleAgentEnd: ${err}`
               );
+              if (handler.raiseError) {
+                throw err;
+              }
             }
           }
         }, handler.awaitHandlers)
@@ -431,6 +478,9 @@ export class CallbackManagerForToolRun
               console.error(
                 `Error in handler ${handler.constructor.name}, handleToolError: ${err}`
               );
+              if (handler.raiseError) {
+                throw err;
+              }
             }
           }
         }, handler.awaitHandlers)
@@ -454,6 +504,9 @@ export class CallbackManagerForToolRun
               console.error(
                 `Error in handler ${handler.constructor.name}, handleToolEnd: ${err}`
               );
+              if (handler.raiseError) {
+                throw err;
+              }
             }
           }
         }, handler.awaitHandlers)
@@ -498,7 +551,7 @@ export class CallbackManager
 
   name = "callback_manager";
 
-  private readonly _parentRunId?: string;
+  public _parentRunId?: string;
 
   constructor(
     parentRunId?: string,
@@ -523,10 +576,19 @@ export class CallbackManager
     this._parentRunId = parentRunId;
   }
 
+  /**
+   * Gets the parent run ID, if any.
+   *
+   * @returns The parent run ID.
+   */
+  getParentRunId() {
+    return this._parentRunId;
+  }
+
   async handleLLMStart(
     llm: Serialized,
     prompts: string[],
-    _runId: string | undefined = undefined,
+    runId: string | undefined = undefined,
     _parentRunId: string | undefined = undefined,
     extraParams: Record<string, unknown> | undefined = undefined,
     _tags: string[] | undefined = undefined,
@@ -534,8 +596,9 @@ export class CallbackManager
     runName: string | undefined = undefined
   ): Promise<CallbackManagerForLLMRun[]> {
     return Promise.all(
-      prompts.map(async (prompt) => {
-        const runId = uuidv4();
+      prompts.map(async (prompt, idx) => {
+        // Can't have duplicate runs with the same run ID (if provided)
+        const runId_ = idx === 0 && runId ? runId : uuidv4();
 
         await Promise.all(
           this.handlers.map((handler) =>
@@ -545,7 +608,7 @@ export class CallbackManager
                   await handler.handleLLMStart?.(
                     llm,
                     [prompt],
-                    runId,
+                    runId_,
                     this._parentRunId,
                     extraParams,
                     this.tags,
@@ -556,6 +619,9 @@ export class CallbackManager
                   console.error(
                     `Error in handler ${handler.constructor.name}, handleLLMStart: ${err}`
                   );
+                  if (handler.raiseError) {
+                    throw err;
+                  }
                 }
               }
             }, handler.awaitHandlers)
@@ -563,7 +629,7 @@ export class CallbackManager
         );
 
         return new CallbackManagerForLLMRun(
-          runId,
+          runId_,
           this.handlers,
           this.inheritableHandlers,
           this.tags,
@@ -579,7 +645,7 @@ export class CallbackManager
   async handleChatModelStart(
     llm: Serialized,
     messages: BaseMessage[][],
-    _runId: string | undefined = undefined,
+    runId: string | undefined = undefined,
     _parentRunId: string | undefined = undefined,
     extraParams: Record<string, unknown> | undefined = undefined,
     _tags: string[] | undefined = undefined,
@@ -587,8 +653,9 @@ export class CallbackManager
     runName: string | undefined = undefined
   ): Promise<CallbackManagerForLLMRun[]> {
     return Promise.all(
-      messages.map(async (messageGroup) => {
-        const runId = uuidv4();
+      messages.map(async (messageGroup, idx) => {
+        // Can't have duplicate runs with the same run ID (if provided)
+        const runId_ = idx === 0 && runId ? runId : uuidv4();
 
         await Promise.all(
           this.handlers.map((handler) =>
@@ -599,7 +666,7 @@ export class CallbackManager
                     await handler.handleChatModelStart?.(
                       llm,
                       [messageGroup],
-                      runId,
+                      runId_,
                       this._parentRunId,
                       extraParams,
                       this.tags,
@@ -611,7 +678,7 @@ export class CallbackManager
                     await handler.handleLLMStart?.(
                       llm,
                       [messageString],
-                      runId,
+                      runId_,
                       this._parentRunId,
                       extraParams,
                       this.tags,
@@ -623,6 +690,9 @@ export class CallbackManager
                   console.error(
                     `Error in handler ${handler.constructor.name}, handleLLMStart: ${err}`
                   );
+                  if (handler.raiseError) {
+                    throw err;
+                  }
                 }
               }
             }, handler.awaitHandlers)
@@ -630,7 +700,7 @@ export class CallbackManager
         );
 
         return new CallbackManagerForLLMRun(
-          runId,
+          runId_,
           this.handlers,
           this.inheritableHandlers,
           this.tags,
@@ -671,6 +741,9 @@ export class CallbackManager
               console.error(
                 `Error in handler ${handler.constructor.name}, handleChainStart: ${err}`
               );
+              if (handler.raiseError) {
+                throw err;
+              }
             }
           }
         }, handler.awaitHandlers)
@@ -715,6 +788,9 @@ export class CallbackManager
               console.error(
                 `Error in handler ${handler.constructor.name}, handleToolStart: ${err}`
               );
+              if (handler.raiseError) {
+                throw err;
+              }
             }
           }
         }, handler.awaitHandlers)
@@ -759,6 +835,9 @@ export class CallbackManager
               console.error(
                 `Error in handler ${handler.constructor.name}, handleRetrieverStart: ${err}`
               );
+              if (handler.raiseError) {
+                throw err;
+              }
             }
           }
         }, handler.awaitHandlers)
@@ -905,7 +984,8 @@ export class CallbackManager
       getEnvironmentVariable("LANGCHAIN_VERBOSE") === "true" ||
       options?.verbose;
     const tracingV2Enabled =
-      getEnvironmentVariable("LANGCHAIN_TRACING_V2") === "true";
+      getEnvironmentVariable("LANGCHAIN_TRACING_V2") === "true" ||
+      getEnvironmentVariable("LANGSMITH_TRACING") === "true";
 
     const tracingEnabled =
       tracingV2Enabled ||
@@ -930,15 +1010,13 @@ export class CallbackManager
         )
       ) {
         if (tracingV2Enabled) {
-          callbackManager.addHandler(await getTracingV2CallbackHandler(), true);
-        } else {
-          const session =
-            getEnvironmentVariable("LANGCHAIN_PROJECT") &&
-            getEnvironmentVariable("LANGCHAIN_SESSION");
-          callbackManager.addHandler(
-            await getTracingCallbackHandler(session),
-            true
-          );
+          const tracerV2 = await getTracingV2CallbackHandler();
+          callbackManager.addHandler(tracerV2, true);
+
+          // handoff between langchain and langsmith/traceable
+          // override the parent run ID
+          callbackManager._parentRunId =
+            tracerV2.getTraceableRunTree()?.id ?? callbackManager._parentRunId;
         }
       }
     }
@@ -958,7 +1036,7 @@ export class CallbackManager
   }
 }
 
-function ensureHandler(
+export function ensureHandler(
   handler: BaseCallbackHandler | CallbackHandlerMethods
 ): BaseCallbackHandler {
   if ("name" in handler) {

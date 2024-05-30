@@ -1,12 +1,12 @@
-import { ChatOpenAI } from "../../../chat_models/openai.js";
+import { ChatOpenAI } from "@langchain/openai";
 import {
   InputValues,
   MemoryVariables,
   OutputValues,
-  getBufferString,
   getInputValue,
   getOutputValue,
-} from "../../../memory/base.js";
+} from "@langchain/core/memory";
+import { getBufferString } from "@langchain/core/messages";
 import {
   BaseChatMemory,
   BaseChatMemoryInput,

@@ -1,15 +1,14 @@
 import { expect, test } from "@jest/globals";
 import { z } from "zod";
 
-import { StructuredOutputParser } from "../structured.js";
-import { OpenAI } from "../../llms/openai.js";
-import { ChatOpenAI } from "../../chat_models/openai.js";
-import { LLMChain } from "../../chains/index.js";
+import { OpenAI, ChatOpenAI } from "@langchain/openai";
 import {
   ChatPromptTemplate,
   PromptTemplate,
   SystemMessagePromptTemplate,
-} from "../../prompts/index.js";
+} from "@langchain/core/prompts";
+import { LLMChain } from "../../chains/index.js";
+import { StructuredOutputParser } from "../structured.js";
 
 test("StructuredOutputParser deals special chars in prompt with llm model", async () => {
   const model = new OpenAI({
@@ -170,7 +169,7 @@ test("StructuredOutputParser handles a longer and more complex schema", async ()
   const input = await prompt.format({
     inputText: "A man, living in Poland.",
   });
-  const response = await model.call(input);
+  const response = await model.invoke(input);
   console.log("response", response);
 
   const parsed = await parser.parse(response);

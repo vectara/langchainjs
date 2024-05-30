@@ -1,6 +1,5 @@
 import { TavilySearchResults } from "@langchain/community/tools/tavily_search";
 import { OpenAIEmbeddings, ChatOpenAI } from "@langchain/openai";
-import { ChatMessageHistory } from "langchain/stores/message/in_memory";
 import { RunnableWithMessageHistory } from "@langchain/core/runnables";
 import { HumanMessage, AIMessage } from "@langchain/core/messages";
 
@@ -8,9 +7,10 @@ import { pull } from "langchain/hub";
 import type { ChatPromptTemplate } from "@langchain/core/prompts";
 import { createRetrieverTool } from "langchain/tools/retriever";
 import { AgentExecutor, createOpenAIFunctionsAgent } from "langchain/agents";
-import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
+import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { CheerioWebBaseLoader } from "langchain/document_loaders/web/cheerio";
 import { MemoryVectorStore } from "langchain/vectorstores/memory";
+import { ChatMessageHistory } from "@langchain/community/stores/message/in_memory";
 
 const searchTool = new TavilySearchResults();
 
@@ -23,7 +23,7 @@ console.log(toolResult);
 */
 
 const loader = new CheerioWebBaseLoader(
-  "https://docs.smith.langchain.com/overview"
+  "https://docs.smith.langchain.com/user_guide"
 );
 const rawDocs = await loader.load();
 const splitter = new RecursiveCharacterTextSplitter({
@@ -37,16 +37,14 @@ const vectorstore = await MemoryVectorStore.fromDocuments(
 );
 const retriever = vectorstore.asRetriever();
 
-const retrieverResult = await retriever.getRelevantDocuments(
-  "how to upload a dataset"
-);
+const retrieverResult = await retriever.invoke("how to upload a dataset");
 console.log(retrieverResult[0]);
 
 /*
   Document {
-    pageContent: "dataset uploading.Once we have a dataset, how can we use it to test changes to a prompt or chain? The most basic approach is to run the chain over the data points and visualize the outputs. Despite technological advancements, there still is no substitute for looking at outputs by eye. Currently, running the chain over the data points needs to be done client-side. The LangSmith client makes it easy to pull down a dataset and then run a chain over them, logging the results to a new project associated with the dataset. From there, you can review them. We've made it easy to assign feedback to runs and mark them as correct or incorrect directly in the web app, displaying aggregate statistics for each test project.We also make it easier to evaluate these runs. To that end, we've added a set of evaluators to the open-source LangChain library. These evaluators can be specified when initiating a test run and will evaluate the results once the test run completes. If we’re being honest, most of",
+    pageContent: "your application progresses through the beta testing phase, it's essential to continue collecting data to refine and improve...",
     metadata: {
-      source: 'https://docs.smith.langchain.com/overview',
+      source: 'https://docs.smith.langchain.com/user_guide',
       loc: { lines: [Object] }
     }
   }
@@ -61,7 +59,7 @@ const retrieverTool = createRetrieverTool(retriever, {
 const tools = [searchTool, retrieverTool];
 
 const llm = new ChatOpenAI({
-  modelName: "gpt-3.5-turbo-1106",
+  model: "gpt-3.5-turbo-1106",
   temperature: 0,
 });
 

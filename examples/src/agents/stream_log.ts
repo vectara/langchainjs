@@ -9,7 +9,7 @@ import { AgentExecutor, createOpenAIFunctionsAgent } from "langchain/agents";
 const tools = [new TavilySearchResults({})];
 
 const llm = new ChatOpenAI({
-  modelName: "gpt-3.5-turbo-1106",
+  model: "gpt-3.5-turbo-1106",
   temperature: 0,
   streaming: true,
 });
@@ -36,7 +36,16 @@ const logStream = await agentExecutor.streamLog({
   input: "what is the weather in SF",
 });
 
+// You can optionally aggregate the final state using the .concat() method
+// as shown below.
+let finalState;
+
 for await (const chunk of logStream) {
+  if (!finalState) {
+    finalState = chunk;
+  } else {
+    finalState = finalState.concat(chunk);
+  }
   console.log(JSON.stringify(chunk, null, 2));
 }
 /*

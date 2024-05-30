@@ -40,6 +40,16 @@ export interface ElasticClientArgs {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ElasticFilter = object | { field: string; operator: string; value: any }[];
 
+type ElasticMetadataTerms = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  must: { [operator: string]: { [field: string]: any } }[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  must_not: { [operator: string]: { [field: string]: any } }[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  should?: { [operator: string]: { [field: string]: any } }[];
+  minimum_should_match?: number;
+};
+
 /**
  * Class for interacting with an Elasticsearch database. It extends the
  * VectorStore base class and provides methods for adding documents and
@@ -165,7 +175,7 @@ export class ElasticVectorSearch extends VectorStore {
       knn: {
         field: "embedding",
         query_vector: query,
-        filter: this.buildMetadataTerms(filter),
+        filter: { bool: this.buildMetadataTerms(filter) },
         k,
         num_candidates: this.candidates,
       },
@@ -193,7 +203,8 @@ export class ElasticVectorSearch extends VectorStore {
         _index: this.indexName,
       },
     }));
-    await this.client.bulk({ refresh: true, operations });
+    if (operations.length > 0)
+      await this.client.bulk({ refresh: true, operations });
   }
 
   /**
@@ -310,12 +321,8 @@ export class ElasticVectorSearch extends VectorStore {
     await this.client.indices.create(request);
   }
 
-  private buildMetadataTerms(
-    filter?: ElasticFilter
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ): { [operator: string]: { [field: string]: any } }[] {
-    if (filter == null) return [];
-    const result = [];
+  private buildMetadataTerms(filter?: ElasticFilter): ElasticMetadataTerms {
+    if (filter == null) return { must: [], must_not: [] };
     const filters = Array.isArray(filter)
       ? filter
       : Object.entries(filter).map(([key, value]) => ({
@@ -323,12 +330,43 @@ export class ElasticVectorSearch extends VectorStore {
           field: key,
           value,
         }));
+
+    const must = [];
+    const must_not = [];
+    const should = [];
     for (const condition of filters) {
-      result.push({
-        [condition.operator]: {
-          [`metadata.${condition.field}`]: condition.value,
-        },
-      });
+      const metadataField = `metadata.${condition.field}`;
+      if (condition.operator === "exists") {
+        must.push({
+          [condition.operator]: {
+            field: metadataField,
+          },
+        });
+      } else if (condition.operator === "exclude") {
+        must_not.push({
+          terms: {
+            [metadataField]: condition.value,
+          },
+        });
+      } else if (condition.operator === "or") {
+        should.push({
+          term: {
+            [metadataField]: condition.value,
+          },
+        });
+      } else {
+        must.push({
+          [condition.operator]: {
+            [metadataField]: condition.value,
+          },
+        });
+      }
+    }
+    const result: ElasticMetadataTerms = { must, must_not };
+
+    if (should.length > 0) {
+      result.should = should;
+      result.minimum_should_match = 1;
     }
     return result;
   }

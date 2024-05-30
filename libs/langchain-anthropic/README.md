@@ -52,7 +52,7 @@ Then initialize
 import { ChatAnthropicMessages } from "@langchain/anthropic";
 
 const model = new ChatAnthropic({
-  anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+  apiKey: process.env.ANTHROPIC_API_KEY,
 });
 const response = await model.invoke(new HumanMessage("Hello world!"));
 ```
@@ -63,8 +63,8 @@ const response = await model.invoke(new HumanMessage("Hello world!"));
 import { ChatAnthropicMessages } from "@langchain/anthropic";
 
 const model = new ChatAnthropic({
-  anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-  modelName: "claude-2.1",
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  model: "claude-3-sonnet-20240229",
 });
 const response = await model.stream(new HumanMessage("Hello world!"));
 ```
@@ -111,7 +111,7 @@ yarn lint && yarn format
 
 ### Adding new entrypoints
 
-If you add a new file to be exported, either import & re-export from `src/index.ts`, or add it to `scripts/create-entrypoints.js` and run `yarn build` to generate the new entrypoint.
+If you add a new file to be exported, either import & re-export from `src/index.ts`, or add it to the `entrypoints` field in the `config` variable located inside `langchain.config.js` and run `yarn build` to generate the new entrypoint.
 
 ## Publishing
 

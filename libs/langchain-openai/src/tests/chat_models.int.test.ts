@@ -18,21 +18,6 @@ import { NewTokenIndices } from "@langchain/core/callbacks/base";
 import { InMemoryCache } from "@langchain/core/caches";
 import { ChatOpenAI } from "../chat_models.js";
 
-test("Test ChatOpenAI", async () => {
-  const chat = new ChatOpenAI({ modelName: "gpt-3.5-turbo", maxTokens: 10 });
-  const message = new HumanMessage("Hello!");
-  const res = await chat.call([message]);
-  console.log({ res });
-});
-
-test("Test ChatOpenAI with SystemChatMessage", async () => {
-  const chat = new ChatOpenAI({ modelName: "gpt-3.5-turbo", maxTokens: 10 });
-  const system_message = new SystemMessage("You are to chat with a user.");
-  const message = new HumanMessage("Hello!");
-  const res = await chat.call([system_message, message]);
-  console.log({ res });
-});
-
 test("Test ChatOpenAI Generate", async () => {
   const chat = new ChatOpenAI({
     modelName: "gpt-3.5-turbo",
@@ -83,7 +68,7 @@ test("Test ChatOpenAI tokenUsage", async () => {
     }),
   });
   const message = new HumanMessage("Hello");
-  const res = await model.call([message]);
+  const res = await model.invoke([message]);
   console.log({ res });
 
   expect(tokenUsage.promptTokens).toBeGreaterThan(0);
@@ -132,7 +117,7 @@ test("Test ChatOpenAI in streaming mode", async () => {
     ],
   });
   const message = new HumanMessage("Hello!");
-  const result = await model.call([message]);
+  const result = await model.invoke([message]);
   console.log(result);
 
   expect(nrNewTokens > 0).toBe(true);
@@ -214,34 +199,33 @@ test("OpenAI Chat, docs, prompt templates", async () => {
 
 test("Test OpenAI with stop", async () => {
   const model = new ChatOpenAI({ maxTokens: 5 });
-  const res = await model.call(
-    [new HumanMessage("Print hello world")],
-    ["world"]
-  );
+  const res = await model.invoke([new HumanMessage("Print hello world")], {
+    stop: ["world"],
+  });
   console.log({ res });
 });
 
 test("Test OpenAI with stop in object", async () => {
   const model = new ChatOpenAI({ maxTokens: 5 });
-  const res = await model.call([new HumanMessage("Print hello world")], {
+  const res = await model.invoke([new HumanMessage("Print hello world")], {
     stop: ["world"],
   });
   console.log({ res });
 });
 
 test("Test OpenAI with timeout in call options", async () => {
-  const model = new ChatOpenAI({ maxTokens: 5 });
+  const model = new ChatOpenAI({ maxTokens: 5, maxRetries: 0 });
   await expect(() =>
-    model.call([new HumanMessage("Print hello world")], {
+    model.invoke([new HumanMessage("Print hello world")], {
       options: { timeout: 10 },
     })
   ).rejects.toThrow();
 }, 5000);
 
 test("Test OpenAI with timeout in call options and node adapter", async () => {
-  const model = new ChatOpenAI({ maxTokens: 5 });
+  const model = new ChatOpenAI({ maxTokens: 5, maxRetries: 0 });
   await expect(() =>
-    model.call([new HumanMessage("Print hello world")], {
+    model.invoke([new HumanMessage("Print hello world")], {
       options: { timeout: 10 },
     })
   ).rejects.toThrow();
@@ -251,7 +235,7 @@ test("Test OpenAI with signal in call options", async () => {
   const model = new ChatOpenAI({ maxTokens: 5 });
   const controller = new AbortController();
   await expect(() => {
-    const ret = model.call([new HumanMessage("Print hello world")], {
+    const ret = model.invoke([new HumanMessage("Print hello world")], {
       options: { signal: controller.signal },
     });
 
@@ -262,10 +246,13 @@ test("Test OpenAI with signal in call options", async () => {
 }, 5000);
 
 test("Test OpenAI with signal in call options and node adapter", async () => {
-  const model = new ChatOpenAI({ maxTokens: 5, modelName: "text-ada-001" });
+  const model = new ChatOpenAI({
+    maxTokens: 5,
+    modelName: "gpt-3.5-turbo-instruct",
+  });
   const controller = new AbortController();
   await expect(() => {
-    const ret = model.call([new HumanMessage("Print hello world")], {
+    const ret = model.invoke([new HumanMessage("Print hello world")], {
       options: { signal: controller.signal },
     });
 
@@ -342,7 +329,7 @@ test("Test OpenAI with specific roles in ChatMessage", async () => {
     "system"
   );
   const user_message = new ChatMessage("Hello!", "user");
-  const res = await chat.call([system_message, user_message]);
+  const res = await chat.invoke([system_message, user_message]);
   console.log({ res });
 });
 
@@ -396,6 +383,7 @@ test("Test ChatOpenAI stream method, timeout error thrown from SDK", async () =>
       maxTokens: 50,
       modelName: "gpt-3.5-turbo",
       timeout: 1,
+      maxRetries: 0,
     });
     const stream = await model.stream(
       "How is your day going? Be extremely verbose."
@@ -663,6 +651,7 @@ test("Test ChatOpenAI token usage reporting for streaming function calls", async
       },
     ],
   }).bind({
+    seed: 42,
     functions: [extractionFunctionSchema],
     function_call: { name: "extractor" },
   });
@@ -686,6 +675,7 @@ test("Test ChatOpenAI token usage reporting for streaming function calls", async
       },
     ],
   }).bind({
+    seed: 42,
     functions: [extractionFunctionSchema],
     function_call: { name: "extractor" },
   });

@@ -11,6 +11,7 @@ import { CallbackManagerForLLMRun } from "@langchain/core/callbacks/manager";
 import {
   type BaseChatModelParams,
   BaseChatModel,
+  LangSmithParams,
 } from "@langchain/core/language_models/chat_models";
 import {
   ChatGeneration,
@@ -64,13 +65,15 @@ function convertMessagesToCohereMessages(
 ): Array<Cohere.ChatMessage> {
   const getRole = (role: MessageType) => {
     switch (role) {
+      case "system":
+        return "SYSTEM";
       case "human":
         return "USER";
       case "ai":
         return "CHATBOT";
       default:
         throw new Error(
-          `Unknown message type: '${role}'. Accepted types: 'human', 'ai'`
+          `Unknown message type: '${role}'. Accepted types: 'human', 'ai', 'system'`
         );
     }
   };
@@ -143,6 +146,21 @@ export class ChatCohere<
     this.streaming = fields?.streaming ?? this.streaming;
   }
 
+  protected getLsParams(options: this["ParsedCallOptions"]): LangSmithParams {
+    const params = this.invocationParams(options);
+    return {
+      ls_provider: "cohere",
+      ls_model_name: this.model,
+      ls_model_type: "chat",
+      ls_temperature: this.temperature ?? undefined,
+      ls_max_tokens:
+        typeof params.maxTokens === "number" ? params.maxTokens : undefined,
+      ls_stop: Array.isArray(params.stopSequences)
+        ? (params.stopSequences as unknown as string[])
+        : undefined,
+    };
+  }
+
   _llmType() {
     return "cohere";
   }
@@ -150,13 +168,12 @@ export class ChatCohere<
   invocationParams(options: this["ParsedCallOptions"]) {
     const params = {
       model: this.model,
-      preambleOverride: options.preambleOverride,
+      preamble: options.preamble,
       conversationId: options.conversationId,
       promptTruncation: options.promptTruncation,
       connectors: options.connectors,
       searchQueriesOnly: options.searchQueriesOnly,
       documents: options.documents,
-      citationQuality: options.citationQuality,
       temperature: options.temperature ?? this.temperature,
     };
     // Filter undefined entries
@@ -177,14 +194,14 @@ export class ChatCohere<
     // The last message in the array is the most recent, all other messages
     // are apart of the chat history.
     const { message } = cohereMessages[cohereMessages.length - 1];
-    const chat_history: Cohere.ChatMessage[] = [];
+    const chatHistory: Cohere.ChatMessage[] = [];
     if (cohereMessages.length > 1) {
-      chat_history.concat(cohereMessages.slice(0, -1));
+      chatHistory.push(...cohereMessages.slice(0, -1));
     }
     const input = {
       ...params,
       message,
-      chat_history,
+      chatHistory,
     };
 
     // Handle streaming
@@ -274,14 +291,14 @@ export class ChatCohere<
     // The last message in the array is the most recent, all other messages
     // are apart of the chat history.
     const { message } = cohereMessages[cohereMessages.length - 1];
-    const chat_history: Cohere.ChatMessage[] = [];
+    const chatHistory: Cohere.ChatMessage[] = [];
     if (cohereMessages.length > 1) {
-      chat_history.concat(cohereMessages.slice(0, -1));
+      chatHistory.push(...cohereMessages.slice(0, -1));
     }
     const input = {
       ...params,
       message,
-      chat_history,
+      chatHistory,
     };
 
     // All models have a built in `this.caller` property for retries

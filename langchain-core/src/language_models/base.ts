@@ -1,5 +1,6 @@
 import type { Tiktoken, TiktokenModel } from "js-tiktoken/lite";
 
+import { z } from "zod";
 import { type BaseCache, InMemoryCache } from "../caches.js";
 import {
   type BasePromptValueInterface,
@@ -13,11 +14,7 @@ import {
   coerceMessageLikeToMessage,
 } from "../messages/index.js";
 import { type LLMResult } from "../outputs.js";
-import {
-  BaseCallbackConfig,
-  CallbackManager,
-  Callbacks,
-} from "../callbacks/manager.js";
+import { CallbackManager, Callbacks } from "../callbacks/manager.js";
 import { AsyncCaller, AsyncCallerParams } from "../utils/async_caller.js";
 import { encodingForModel } from "../utils/tiktoken.js";
 import { Runnable, type RunnableInterface } from "../runnables/base.js";
@@ -40,6 +37,10 @@ export const getModelNameForTiktoken = (modelName: string): TiktokenModel => {
 
   if (modelName.startsWith("gpt-4-")) {
     return "gpt-4";
+  }
+
+  if (modelName.startsWith("gpt-4o")) {
+    return "gpt-4o";
   }
 
   return modelName as TiktokenModel;
@@ -179,7 +180,7 @@ export interface BaseLanguageModelParams
   cache?: BaseCache | boolean;
 }
 
-export interface BaseLanguageModelCallOptions extends BaseCallbackConfig {
+export interface BaseLanguageModelCallOptions extends RunnableConfig {
   /**
    * Stop tokens to use for this call.
    * If not provided, the default stop tokens for the model will be used.
@@ -225,6 +226,11 @@ export interface FunctionDefinition {
   description?: string;
 }
 
+export interface ToolDefinition {
+  type: "function";
+  function: FunctionDefinition;
+}
+
 export type FunctionCallOption = {
   name: string;
 };
@@ -239,13 +245,34 @@ export type BaseLanguageModelInput =
   | string
   | BaseMessageLike[];
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type StructuredOutputType = z.infer<z.ZodObject<any, any, any, any>>;
+
+export type StructuredOutputMethodOptions<IncludeRaw extends boolean = false> =
+  {
+    name?: string;
+    method?: "functionCalling" | "jsonMode";
+    includeRaw?: IncludeRaw;
+  };
+
+/** @deprecated Use StructuredOutputMethodOptions instead */
+export type StructuredOutputMethodParams<
+  RunOutput,
+  IncludeRaw extends boolean = false
+> = {
+  /** @deprecated Pass schema in as the first argument */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  schema: z.ZodType<RunOutput> | Record<string, any>;
+  name?: string;
+  method?: "functionCalling" | "jsonMode";
+  includeRaw?: IncludeRaw;
+};
+
 export interface BaseLanguageModelInterface<
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   RunOutput = any,
   CallOptions extends BaseLanguageModelCallOptions = BaseLanguageModelCallOptions
 > extends RunnableInterface<BaseLanguageModelInput, RunOutput, CallOptions> {
-  CallOptions: CallOptions;
-
   get callKeys(): string[];
 
   generatePrompt(
@@ -254,12 +281,18 @@ export interface BaseLanguageModelInterface<
     callbacks?: Callbacks
   ): Promise<LLMResult>;
 
+  /**
+   * @deprecated Use .invoke() instead. Will be removed in 0.2.0.
+   */
   predict(
     text: string,
     options?: string[] | CallOptions,
     callbacks?: Callbacks
   ): Promise<string>;
 
+  /**
+   * @deprecated Use .invoke() instead. Will be removed in 0.2.0.
+   */
   predictMessages(
     messages: BaseMessage[],
     options?: string[] | CallOptions,
@@ -301,8 +334,6 @@ export abstract class BaseLanguageModel<
     BaseLanguageModelParams,
     BaseLanguageModelInterface<RunOutput, CallOptions>
 {
-  declare CallOptions: CallOptions;
-
   /**
    * Keys that the language model accepts as call options.
    */
@@ -343,12 +374,18 @@ export abstract class BaseLanguageModel<
     callbacks?: Callbacks
   ): Promise<LLMResult>;
 
+  /**
+   * @deprecated Use .invoke() instead. Will be removed in 0.2.0.
+   */
   abstract predict(
     text: string,
     options?: string[] | CallOptions,
     callbacks?: Callbacks
   ): Promise<string>;
 
+  /**
+   * @deprecated Use .invoke() instead. Will be removed in 0.2.0.
+   */
   abstract predictMessages(
     messages: BaseMessage[],
     options?: string[] | CallOptions,
@@ -424,7 +461,8 @@ export abstract class BaseLanguageModel<
    * @returns A unique cache key.
    */
   protected _getSerializedCacheKeyParametersForCall(
-    callOptions: CallOptions
+    // TODO: Fix when we remove the RunnableLambda backwards compatibility shim.
+    { config, ...callOptions }: CallOptions & { config?: RunnableConfig }
   ): string {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params: Record<string, any> = {
@@ -462,4 +500,69 @@ export abstract class BaseLanguageModel<
   static async deserialize(_data: SerializedLLM): Promise<BaseLanguageModel> {
     throw new Error("Use .toJSON() instead");
   }
+
+  withStructuredOutput?<
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    RunOutput extends Record<string, any> = Record<string, any>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  >(
+    schema:
+      | z.ZodType<RunOutput>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      | Record<string, any>,
+    config?: StructuredOutputMethodOptions<false>
+  ): Runnable<BaseLanguageModelInput, RunOutput>;
+
+  withStructuredOutput?<
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    RunOutput extends Record<string, any> = Record<string, any>
+  >(
+    schema:
+      | z.ZodType<RunOutput>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      | Record<string, any>,
+    config?: StructuredOutputMethodOptions<true>
+  ): Runnable<BaseLanguageModelInput, { raw: BaseMessage; parsed: RunOutput }>;
+
+  /**
+   * Model wrapper that returns outputs formatted to match the given schema.
+   *
+   * @template {BaseLanguageModelInput} RunInput The input type for the Runnable, expected to be the same input for the LLM.
+   * @template {Record<string, any>} RunOutput The output type for the Runnable, expected to be a Zod schema object for structured output validation.
+   *
+   * @param {z.ZodEffects<RunOutput>} schema The schema for the structured output. Either as a Zod schema or a valid JSON schema object.
+   *   If a Zod schema is passed, the returned attributes will be validated, whereas with JSON schema they will not be.
+   * @param {string} name The name of the function to call.
+   * @param {"functionCalling" | "jsonMode"} [method=functionCalling] The method to use for getting the structured output. Defaults to "functionCalling".
+   * @param {boolean | undefined} [includeRaw=false] Whether to include the raw output in the result. Defaults to false.
+   * @returns {Runnable<RunInput, RunOutput> | Runnable<RunInput, { raw: BaseMessage; parsed: RunOutput }>} A new runnable that calls the LLM with structured output.
+   */
+  withStructuredOutput?<
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    RunOutput extends Record<string, any> = Record<string, any>
+  >(
+    schema:
+      | z.ZodType<RunOutput>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      | Record<string, any>,
+    config?: StructuredOutputMethodOptions<boolean>
+  ):
+    | Runnable<BaseLanguageModelInput, RunOutput>
+    | Runnable<
+        BaseLanguageModelInput,
+        {
+          raw: BaseMessage;
+          parsed: RunOutput;
+        }
+      >;
+}
+
+/**
+ * Shared interface for token usage
+ * return type from LLM calls.
+ */
+export interface TokenUsage {
+  completionTokens?: number;
+  promptTokens?: number;
+  totalTokens?: number;
 }

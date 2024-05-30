@@ -6,9 +6,15 @@ import type {
   PuppeteerLaunchOptions,
 } from "puppeteer";
 
-import { Document } from "../../document.js";
+import { Document } from "@langchain/core/documents";
 import { BaseDocumentLoader } from "../base.js";
 import type { DocumentLoader } from "../base.js";
+import { logVersion020MigrationWarning } from "../../util/entrypoint_deprecation.js";
+
+/* #__PURE__ */ logVersion020MigrationWarning({
+  oldEntrypointName: "document_loaders/web/puppeteer",
+  newPackageName: "@langchain/community",
+});
 
 export { Page, Browser };
 
@@ -34,6 +40,8 @@ export type PuppeteerWebBaseLoaderOptions = {
 };
 
 /**
+ * @deprecated - Import from "@langchain/community/document_loaders/web/puppeteer" instead. This entrypoint will be removed in 0.3.0.
+ *
  * Class that extends the BaseDocumentLoader class and implements the
  * DocumentLoader interface. It represents a document loader for scraping
  * web pages using Puppeteer.

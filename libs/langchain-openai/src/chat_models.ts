@@ -12,20 +12,48 @@ import {
   SystemMessageChunk,
   ToolMessage,
   ToolMessageChunk,
+  OpenAIToolCall,
+  isAIMessage,
 } from "@langchain/core/messages";
 import {
   type ChatGeneration,
   ChatGenerationChunk,
   type ChatResult,
 } from "@langchain/core/outputs";
-import type { StructuredToolInterface } from "@langchain/core/tools";
+import { type StructuredToolInterface } from "@langchain/core/tools";
 import { getEnvironmentVariable } from "@langchain/core/utils/env";
 import {
   BaseChatModel,
+  LangSmithParams,
   type BaseChatModelParams,
 } from "@langchain/core/language_models/chat_models";
-import type { BaseFunctionCallOptions } from "@langchain/core/language_models/base";
+import type {
+  BaseFunctionCallOptions,
+  BaseLanguageModelInput,
+  FunctionDefinition,
+  StructuredOutputMethodOptions,
+  StructuredOutputMethodParams,
+} from "@langchain/core/language_models/base";
 import { NewTokenIndices } from "@langchain/core/callbacks/base";
+import { convertToOpenAITool } from "@langchain/core/utils/function_calling";
+import { z } from "zod";
+import {
+  Runnable,
+  RunnablePassthrough,
+  RunnableSequence,
+} from "@langchain/core/runnables";
+import {
+  JsonOutputParser,
+  StructuredOutputParser,
+  type BaseLLMOutputParser,
+} from "@langchain/core/output_parsers";
+import {
+  JsonOutputKeyToolsParser,
+  convertLangChainToolCallToOpenAI,
+  makeInvalidToolCall,
+  parseToolCall,
+} from "@langchain/core/output_parsers/openai_tools";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import type {
   AzureOpenAIInput,
   OpenAICallOptions,
@@ -34,7 +62,7 @@ import type {
   LegacyOpenAIInput,
 } from "./types.js";
 import { type OpenAIEndpointConfig, getEndpoint } from "./utils/azure.js";
-import { wrapOpenAIClientError, formatToOpenAITool } from "./utils/openai.js";
+import { wrapOpenAIClientError } from "./utils/openai.js";
 import {
   FunctionDef,
   formatFunctionDefinitions,
@@ -100,12 +128,31 @@ export function messageToOpenAIRole(message: BaseMessage): OpenAIRoleEnum {
 function openAIResponseToChatMessage(
   message: OpenAIClient.Chat.Completions.ChatCompletionMessage
 ): BaseMessage {
+  const rawToolCalls: OpenAIToolCall[] | undefined = message.tool_calls as
+    | OpenAIToolCall[]
+    | undefined;
   switch (message.role) {
-    case "assistant":
-      return new AIMessage(message.content || "", {
-        function_call: message.function_call,
-        tool_calls: message.tool_calls,
+    case "assistant": {
+      const toolCalls = [];
+      const invalidToolCalls = [];
+      for (const rawToolCall of rawToolCalls ?? []) {
+        try {
+          toolCalls.push(parseToolCall(rawToolCall, { returnId: true }));
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } catch (e: any) {
+          invalidToolCalls.push(makeInvalidToolCall(rawToolCall, e.message));
+        }
+      }
+      return new AIMessage({
+        content: message.content || "",
+        tool_calls: toolCalls,
+        invalid_tool_calls: invalidToolCalls,
+        additional_kwargs: {
+          function_call: message.function_call,
+          tool_calls: rawToolCalls,
+        },
       });
+    }
     default:
       return new ChatMessage(message.content || "", message.role ?? "unknown");
   }
@@ -133,7 +180,22 @@ function _convertDeltaToMessageChunk(
   if (role === "user") {
     return new HumanMessageChunk({ content });
   } else if (role === "assistant") {
-    return new AIMessageChunk({ content, additional_kwargs });
+    const toolCallChunks = [];
+    if (Array.isArray(delta.tool_calls)) {
+      for (const rawToolCall of delta.tool_calls) {
+        toolCallChunks.push({
+          name: rawToolCall.function?.name,
+          args: rawToolCall.function?.arguments,
+          id: rawToolCall.id,
+          index: rawToolCall.index,
+        });
+      }
+    }
+    return new AIMessageChunk({
+      content,
+      tool_call_chunks: toolCallChunks,
+      additional_kwargs,
+    });
   } else if (role === "system") {
     return new SystemMessageChunk({ content });
   } else if (role === "function") {
@@ -155,17 +217,32 @@ function _convertDeltaToMessageChunk(
 
 function convertMessagesToOpenAIParams(messages: BaseMessage[]) {
   // TODO: Function messages do not support array content, fix cast
-  return messages.map(
-    (message) =>
-      ({
-        role: messageToOpenAIRole(message),
-        content: message.content,
-        name: message.name,
-        function_call: message.additional_kwargs.function_call,
-        tool_calls: message.additional_kwargs.tool_calls,
-        tool_call_id: (message as ToolMessage).tool_call_id,
-      } as OpenAICompletionParam)
-  );
+  return messages.map((message) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const completionParam: Record<string, any> = {
+      role: messageToOpenAIRole(message),
+      content: message.content,
+    };
+    if (message.name != null) {
+      completionParam.name = message.name;
+    }
+    if (message.additional_kwargs.function_call != null) {
+      completionParam.function_call = message.additional_kwargs.function_call;
+    }
+    if (isAIMessage(message) && !!message.tool_calls?.length) {
+      completionParam.tool_calls = message.tool_calls.map(
+        convertLangChainToolCallToOpenAI
+      );
+    } else {
+      if (message.additional_kwargs.tool_calls != null) {
+        completionParam.tool_calls = message.additional_kwargs.tool_calls;
+      }
+      if ((message as ToolMessage).tool_call_id != null) {
+        completionParam.tool_call_id = (message as ToolMessage).tool_call_id;
+      }
+    }
+    return completionParam as OpenAICompletionParam;
+  });
 }
 
 export interface ChatOpenAICallOptions
@@ -201,7 +278,7 @@ export interface ChatOpenAICallOptions
  * // Create a new instance of ChatOpenAI with specific temperature and model name settings
  * const model = new ChatOpenAI({
  *   temperature: 0.9,
- *   modelName: "ft:gpt-3.5-turbo-0613:{ORG_NAME}::{MODEL_ID}",
+ *   model: "ft:gpt-3.5-turbo-0613:{ORG_NAME}::{MODEL_ID}",
  * });
  *
  * // Invoke the model with a message and await the response
@@ -215,7 +292,7 @@ export interface ChatOpenAICallOptions
 export class ChatOpenAI<
     CallOptions extends ChatOpenAICallOptions = ChatOpenAICallOptions
   >
-  extends BaseChatModel<CallOptions>
+  extends BaseChatModel<CallOptions, AIMessageChunk>
   implements OpenAIChatInput, AzureOpenAIInput
 {
   static lc_name() {
@@ -241,6 +318,7 @@ export class ChatOpenAI<
   get lc_secrets(): { [key: string]: string } | undefined {
     return {
       openAIApiKey: "OPENAI_API_KEY",
+      apiKey: "OPENAI_API_KEY",
       azureOpenAIApiKey: "AZURE_OPENAI_API_KEY",
       organization: "OPENAI_ORGANIZATION",
     };
@@ -250,6 +328,7 @@ export class ChatOpenAI<
     return {
       modelName: "model",
       openAIApiKey: "openai_api_key",
+      apiKey: "openai_api_key",
       azureOpenAIApiVersion: "azure_openai_api_version",
       azureOpenAIApiKey: "azure_openai_api_key",
       azureOpenAIApiInstanceName: "azure_openai_api_instance_name",
@@ -271,9 +350,13 @@ export class ChatOpenAI<
 
   modelName = "gpt-3.5-turbo";
 
+  model = "gpt-3.5-turbo";
+
   modelKwargs?: OpenAIChatInput["modelKwargs"];
 
   stop?: string[];
+
+  stopSequences?: string[];
 
   user?: string;
 
@@ -283,11 +366,19 @@ export class ChatOpenAI<
 
   maxTokens?: number;
 
+  logprobs?: boolean;
+
+  topLogprobs?: number;
+
   openAIApiKey?: string;
+
+  apiKey?: string;
 
   azureOpenAIApiVersion?: string;
 
   azureOpenAIApiKey?: string;
+
+  azureADTokenProvider?: () => Promise<string>;
 
   azureOpenAIApiInstanceName?: string;
 
@@ -297,9 +388,9 @@ export class ChatOpenAI<
 
   organization?: string;
 
-  private client: OpenAIClient;
+  protected client: OpenAIClient;
 
-  private clientConfig: ClientOptions;
+  protected clientConfig: ClientOptions;
 
   constructor(
     fields?: Partial<OpenAIChatInput> &
@@ -313,14 +404,21 @@ export class ChatOpenAI<
     super(fields ?? {});
 
     this.openAIApiKey =
-      fields?.openAIApiKey ?? getEnvironmentVariable("OPENAI_API_KEY");
+      fields?.apiKey ??
+      fields?.openAIApiKey ??
+      getEnvironmentVariable("OPENAI_API_KEY");
+    this.apiKey = this.openAIApiKey;
 
     this.azureOpenAIApiKey =
       fields?.azureOpenAIApiKey ??
       getEnvironmentVariable("AZURE_OPENAI_API_KEY");
 
-    if (!this.azureOpenAIApiKey && !this.openAIApiKey) {
-      throw new Error("OpenAI or Azure OpenAI API key not found");
+    this.azureADTokenProvider = fields?.azureADTokenProvider ?? undefined;
+
+    if (!this.azureOpenAIApiKey && !this.apiKey && !this.azureADTokenProvider) {
+      throw new Error(
+        "OpenAI or Azure OpenAI API key or Token Provider not found"
+      );
     }
 
     this.azureOpenAIApiInstanceName =
@@ -343,7 +441,8 @@ export class ChatOpenAI<
       fields?.configuration?.organization ??
       getEnvironmentVariable("OPENAI_ORGANIZATION");
 
-    this.modelName = fields?.modelName ?? this.modelName;
+    this.modelName = fields?.model ?? fields?.modelName ?? this.model;
+    this.model = this.modelName;
     this.modelKwargs = fields?.modelKwargs ?? {};
     this.timeout = fields?.timeout;
 
@@ -352,14 +451,17 @@ export class ChatOpenAI<
     this.frequencyPenalty = fields?.frequencyPenalty ?? this.frequencyPenalty;
     this.presencePenalty = fields?.presencePenalty ?? this.presencePenalty;
     this.maxTokens = fields?.maxTokens;
+    this.logprobs = fields?.logprobs;
+    this.topLogprobs = fields?.topLogprobs;
     this.n = fields?.n ?? this.n;
     this.logitBias = fields?.logitBias;
-    this.stop = fields?.stop;
+    this.stop = fields?.stopSequences ?? fields?.stop;
+    this.stopSequences = this?.stop;
     this.user = fields?.user;
 
     this.streaming = fields?.streaming ?? false;
 
-    if (this.azureOpenAIApiKey) {
+    if (this.azureOpenAIApiKey || this.azureADTokenProvider) {
       if (!this.azureOpenAIApiInstanceName && !this.azureOpenAIBasePath) {
         throw new Error("Azure OpenAI API instance name not found");
       }
@@ -369,11 +471,11 @@ export class ChatOpenAI<
       if (!this.azureOpenAIApiVersion) {
         throw new Error("Azure OpenAI API version not found");
       }
-      this.openAIApiKey = this.openAIApiKey ?? "";
+      this.apiKey = this.apiKey ?? "";
     }
 
     this.clientConfig = {
-      apiKey: this.openAIApiKey,
+      apiKey: this.apiKey,
       organization: this.organization,
       baseURL: configuration?.basePath ?? fields?.configuration?.basePath,
       dangerouslyAllowBrowser: true,
@@ -386,6 +488,28 @@ export class ChatOpenAI<
       ...configuration,
       ...fields?.configuration,
     };
+  }
+
+  protected getLsParams(options: this["ParsedCallOptions"]): LangSmithParams {
+    const params = this.invocationParams(options);
+    return {
+      ls_provider: "openai",
+      ls_model_name: this.model,
+      ls_model_type: "chat",
+      ls_temperature: params.temperature ?? undefined,
+      ls_max_tokens: params.max_tokens ?? undefined,
+      ls_stop: options.stop,
+    };
+  }
+
+  override bindTools(
+    tools: (Record<string, unknown> | StructuredToolInterface)[],
+    kwargs?: Partial<CallOptions>
+  ): Runnable<BaseLanguageModelInput, AIMessageChunk, CallOptions> {
+    return this.bind({
+      tools: tools.map(convertToOpenAITool),
+      ...kwargs,
+    } as Partial<CallOptions>);
   }
 
   /**
@@ -408,21 +532,23 @@ export class ChatOpenAI<
       OpenAIClient.Chat.ChatCompletionCreateParams,
       "messages"
     > = {
-      model: this.modelName,
+      model: this.model,
       temperature: this.temperature,
       top_p: this.topP,
       frequency_penalty: this.frequencyPenalty,
       presence_penalty: this.presencePenalty,
       max_tokens: this.maxTokens === -1 ? undefined : this.maxTokens,
+      logprobs: this.logprobs,
+      top_logprobs: this.topLogprobs,
       n: this.n,
       logit_bias: this.logitBias,
-      stop: options?.stop ?? this.stop,
+      stop: options?.stop ?? this.stopSequences,
       user: this.user,
       stream: this.streaming,
       functions: options?.functions,
       function_call: options?.function_call,
       tools: isStructuredToolArray(options?.tools)
-        ? options?.tools.map(formatToOpenAITool)
+        ? options?.tools.map(convertToOpenAITool)
         : options?.tools,
       tool_choice: options?.tool_choice,
       response_format: options?.response_format,
@@ -440,7 +566,7 @@ export class ChatOpenAI<
     model_name: string;
   } & ClientOptions {
     return {
-      model_name: this.modelName,
+      model_name: this.model,
       ...this.invocationParams(),
       ...this.clientConfig,
     };
@@ -482,10 +608,18 @@ export class ChatOpenAI<
         );
         continue;
       }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const generationInfo: Record<string, any> = { ...newTokenIndices };
+      if (choice.finish_reason !== undefined) {
+        generationInfo.finish_reason = choice.finish_reason;
+      }
+      if (this.logprobs) {
+        generationInfo.logprobs = choice.logprobs;
+      }
       const generationChunk = new ChatGenerationChunk({
         message: chunk,
         text: chunk.content,
-        generationInfo: newTokenIndices,
+        generationInfo,
       });
       yield generationChunk;
       // eslint-disable-next-line no-void
@@ -526,6 +660,10 @@ export class ChatOpenAI<
       const stream = this._streamResponseChunks(messages, options, runManager);
       const finalChunks: Record<number, ChatGenerationChunk> = {};
       for await (const chunk of stream) {
+        chunk.message.response_metadata = {
+          ...chunk.generationInfo,
+          ...chunk.message.response_metadata,
+        };
         const index =
           (chunk.generationInfo as NewTokenIndices)?.completion ?? 0;
         if (finalChunks[index] === undefined) {
@@ -596,9 +734,10 @@ export class ChatOpenAI<
             part.message ?? { role: "assistant" }
           ),
         };
-        if (part.finish_reason) {
-          generation.generationInfo = { finish_reason: part.finish_reason };
-        }
+        generation.generationInfo = {
+          ...(part.finish_reason ? { finish_reason: part.finish_reason } : {}),
+          ...(part.logprobs ? { logprobs: part.logprobs } : {}),
+        };
         generations.push(generation);
       }
       return {
@@ -674,7 +813,7 @@ export class ChatOpenAI<
     let tokensPerName = 0;
 
     // From: https://github.com/openai/openai-cookbook/blob/main/examples/How_to_format_inputs_to_ChatGPT_models.ipynb
-    if (this.modelName === "gpt-3.5-turbo-0301") {
+    if (this.model === "gpt-3.5-turbo-0301") {
       tokensPerMessage = 4;
       tokensPerName = -1;
     } else {
@@ -706,14 +845,25 @@ export class ChatOpenAI<
           );
         }
         if (openAIMessage.additional_kwargs.function_call?.arguments) {
-          count += await this.getNumTokens(
-            // Remove newlines and spaces
-            JSON.stringify(
-              JSON.parse(
-                openAIMessage.additional_kwargs.function_call?.arguments
+          try {
+            count += await this.getNumTokens(
+              // Remove newlines and spaces
+              JSON.stringify(
+                JSON.parse(
+                  openAIMessage.additional_kwargs.function_call?.arguments
+                )
               )
-            )
-          );
+            );
+          } catch (error) {
+            console.error(
+              "Error parsing function arguments",
+              error,
+              JSON.stringify(openAIMessage.additional_kwargs.function_call)
+            );
+            count += await this.getNumTokens(
+              openAIMessage.additional_kwargs.function_call?.arguments
+            );
+          }
         }
 
         totalCount += count;
@@ -766,7 +916,7 @@ export class ChatOpenAI<
     });
   }
 
-  private _getClientOptions(options: OpenAICoreRequestOptions | undefined) {
+  protected _getClientOptions(options: OpenAICoreRequestOptions | undefined) {
     if (!this.client) {
       const openAIEndpointConfig: OpenAIEndpointConfig = {
         azureOpenAIApiDeploymentName: this.azureOpenAIApiDeploymentName,
@@ -833,4 +983,189 @@ export class ChatOpenAI<
       }
     );
   }
+
+  withStructuredOutput<
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    RunOutput extends Record<string, any> = Record<string, any>
+  >(
+    outputSchema:
+      | StructuredOutputMethodParams<RunOutput, false>
+      | z.ZodType<RunOutput>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      | Record<string, any>,
+    config?: StructuredOutputMethodOptions<false>
+  ): Runnable<BaseLanguageModelInput, RunOutput>;
+
+  withStructuredOutput<
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    RunOutput extends Record<string, any> = Record<string, any>
+  >(
+    outputSchema:
+      | StructuredOutputMethodParams<RunOutput, true>
+      | z.ZodType<RunOutput>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      | Record<string, any>,
+    config?: StructuredOutputMethodOptions<true>
+  ): Runnable<BaseLanguageModelInput, { raw: BaseMessage; parsed: RunOutput }>;
+
+  withStructuredOutput<
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    RunOutput extends Record<string, any> = Record<string, any>
+  >(
+    outputSchema:
+      | StructuredOutputMethodParams<RunOutput, boolean>
+      | z.ZodType<RunOutput>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      | Record<string, any>,
+    config?: StructuredOutputMethodOptions<boolean>
+  ):
+    | Runnable<BaseLanguageModelInput, RunOutput>
+    | Runnable<
+        BaseLanguageModelInput,
+        { raw: BaseMessage; parsed: RunOutput }
+      > {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let schema: z.ZodType<RunOutput> | Record<string, any>;
+    let name;
+    let method;
+    let includeRaw;
+    if (isStructuredOutputMethodParams(outputSchema)) {
+      schema = outputSchema.schema;
+      name = outputSchema.name;
+      method = outputSchema.method;
+      includeRaw = outputSchema.includeRaw;
+    } else {
+      schema = outputSchema;
+      name = config?.name;
+      method = config?.method;
+      includeRaw = config?.includeRaw;
+    }
+    let llm: Runnable<BaseLanguageModelInput>;
+    let outputParser: BaseLLMOutputParser<RunOutput>;
+
+    if (method === "jsonMode") {
+      llm = this.bind({
+        response_format: { type: "json_object" },
+      } as Partial<CallOptions>);
+      if (isZodSchema(schema)) {
+        outputParser = StructuredOutputParser.fromZodSchema(schema);
+      } else {
+        outputParser = new JsonOutputParser<RunOutput>();
+      }
+    } else {
+      let functionName = name ?? "extract";
+      // Is function calling
+      if (isZodSchema(schema)) {
+        const asJsonSchema = zodToJsonSchema(schema);
+        llm = this.bind({
+          tools: [
+            {
+              type: "function" as const,
+              function: {
+                name: functionName,
+                description: asJsonSchema.description,
+                parameters: asJsonSchema,
+              },
+            },
+          ],
+          tool_choice: {
+            type: "function" as const,
+            function: {
+              name: functionName,
+            },
+          },
+        } as Partial<CallOptions>);
+        outputParser = new JsonOutputKeyToolsParser({
+          returnSingle: true,
+          keyName: functionName,
+          zodSchema: schema,
+        });
+      } else {
+        let openAIFunctionDefinition: FunctionDefinition;
+        if (
+          typeof schema.name === "string" &&
+          typeof schema.parameters === "object" &&
+          schema.parameters != null
+        ) {
+          openAIFunctionDefinition = schema as FunctionDefinition;
+          functionName = schema.name;
+        } else {
+          functionName = schema.title ?? functionName;
+          openAIFunctionDefinition = {
+            name: functionName,
+            description: schema.description ?? "",
+            parameters: schema,
+          };
+        }
+        llm = this.bind({
+          tools: [
+            {
+              type: "function" as const,
+              function: openAIFunctionDefinition,
+            },
+          ],
+          tool_choice: {
+            type: "function" as const,
+            function: {
+              name: functionName,
+            },
+          },
+        } as Partial<CallOptions>);
+        outputParser = new JsonOutputKeyToolsParser<RunOutput>({
+          returnSingle: true,
+          keyName: functionName,
+        });
+      }
+    }
+
+    if (!includeRaw) {
+      return llm.pipe(outputParser) as Runnable<
+        BaseLanguageModelInput,
+        RunOutput
+      >;
+    }
+
+    const parserAssign = RunnablePassthrough.assign({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      parsed: (input: any, config) => outputParser.invoke(input.raw, config),
+    });
+    const parserNone = RunnablePassthrough.assign({
+      parsed: () => null,
+    });
+    const parsedWithFallback = parserAssign.withFallbacks({
+      fallbacks: [parserNone],
+    });
+    return RunnableSequence.from<
+      BaseLanguageModelInput,
+      { raw: BaseMessage; parsed: RunOutput }
+    >([
+      {
+        raw: llm,
+      },
+      parsedWithFallback,
+    ]);
+  }
+}
+
+function isZodSchema<
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  RunOutput extends Record<string, any> = Record<string, any>
+>(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  input: z.ZodType<RunOutput> | Record<string, any>
+): input is z.ZodType<RunOutput> {
+  // Check for a characteristic method of Zod schemas
+  return typeof (input as z.ZodType<RunOutput>)?.parse === "function";
+}
+
+function isStructuredOutputMethodParams(
+  x: unknown
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): x is StructuredOutputMethodParams<Record<string, any>> {
+  return (
+    x !== undefined &&
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    typeof (x as StructuredOutputMethodParams<Record<string, any>>).schema ===
+      "object"
+  );
 }

@@ -2,57 +2,41 @@
   "$schema": "https://turbo.build/schema.json",
   "globalDependencies": ["**/.env"],
   "pipeline": {
-    "@langchain/core#build": {
-      "outputs": ["dist/**", "dist-cjs/**", "*.js", "*.cjs", "*.d.ts"],
-      "inputs": ["src/**", "scripts/**", "package.json", "tsconfig.json"]
-    },
-    "@langchain/anthropic#build": {
-      "dependsOn": ["@langchain/core#build"],
-      "outputs": ["dist/**", "dist-cjs/**", "*.js", "*.cjs", "*.d.ts"],
-      "inputs": ["src/**", "scripts/**", "package.json", "tsconfig.json"]
-    },
-    "@langchain/openai#build": {
-      "dependsOn": ["@langchain/core#build"],
-      "outputs": ["dist/**", "dist-cjs/**", "*.js", "*.cjs", "*.d.ts"],
-      "inputs": ["src/**", "scripts/**", "package.json", "tsconfig.json"]
-    },
-    "@langchain/community#build": {
-      "dependsOn": ["@langchain/openai#build"],
-      "outputs": ["dist/**", "dist-cjs/**", "*.js", "*.cjs", "*.d.ts"],
-      "inputs": ["src/**", "scripts/**", "package.json", "tsconfig.json"]
-    },
     "build": {
-      "dependsOn": [
-        "@langchain/core#build",
-        "@langchain/community#build",
-        "^build"
-      ],
-      "outputs": ["dist/**", "dist-cjs/**", "*.js", "*.cjs", "*.d.ts"],
-      "inputs": ["src/**", "scripts/**", "package.json", "tsconfig.json"]
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
     },
     "lint": {
-      "outputs": []
+      "dependsOn": ["^lint"]
+    },
+    "lint:fix": {
+      "dependsOn": ["^lint:fix"]
     },
     "format": {
-      "outputs": []
+      "dependsOn": ["^format"]
     },
     "format:check": {
-      "outputs": []
+      "dependsOn": ["^format:check"]
     },
     "test": {
+      "cache": false,
+      "dependsOn": ["^build", "build"]
+    },
+    "test:ci": {
       "outputs": [],
-      "dependsOn": ["^build"]
+      "dependsOn": ["test"]
+    },
+    "test:single": {
+      "dependsOn": ["^build", "build"]
     },
     "test:integration": {
-      "outputs": [],
-      "dependsOn": ["^build"]
+      "dependsOn": ["^build", "build"]
     },
-    "precommit": {},
-    "start": {
-      "cache": false
+    "clean": {
+      "dependsOn": ["^clean"]
     },
-    "build:vercel": {
-      "dependsOn": ["^build:vercel"]
+    "build:internal": {
+      "dependsOn": ["^build:internal"]
     }
   }
 }

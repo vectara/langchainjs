@@ -25,7 +25,11 @@ LangChain supports several different types of integrations with third-party prov
 
 We welcome such contributions, but ask that you read our dedicated [integration contribution guide](https://github.com/langchain-ai/langchainjs/blob/main/.github/contributing/INTEGRATIONS.md) for specific details and patterns to consider before opening a pull request.
 
-These should generally reside in the `libs/langchain-community` workspace and be imported as `@langchain/community/module/name`, but more in-depth integrations or suites of integrations may also reside in separate packages that depend on and extend `@langchain/core`. See [`@langchain/google-genai`](https://github.com/langchain-ai/langchainjs/blob/main/libs/langchain-google-genai) for an example.
+You can also check out the [guides on extending LangChain.js](https://js.langchain.com/v0.2/docs/how_to/#custom) in our docs.
+
+#### Integration packages
+
+Integrations should generally reside in the `libs/langchain-community` workspace and be imported as `@langchain/community/module/name`. More in-depth integrations or suites of integrations may also reside in separate packages that depend on and extend `@langchain/core`. See [`@langchain/google-genai`](https://github.com/langchain-ai/langchainjs/blob/main/libs/langchain-google-genai) for an example.
 
 To make creating packages like this easier, we offer the [`create-langchain-integration`](https://github.com/langchain-ai/langchainjs/blob/main/libs/create-langchain-integration/) utility that will automatically scaffold a repo with support for both ESM + CJS entrypoints. You can run it like this:
 
@@ -73,7 +77,7 @@ good code into the codebase.
 
 ### 🏭 Release process
 
-As of now, LangChain has an ad hoc release process: releases are cut with high frequency via by
+As of now, LangChain has an ad hoc release process: releases are cut with high frequency by
 a developer and published to [npm](https://www.npmjs.com/package/langchain).
 
 LangChain follows the [semver](https://semver.org/) versioning standard. However, as pre-1.0 software,
@@ -84,19 +88,25 @@ If you have a Twitter account you would like us to mention, please let us know i
 
 #### Integration releases
 
-You can invoke the release flow by calling `yarn release` from the package root.
+The release script can be executed only while on a fresh `main` branch, with no un-committed changes, from the package root. If working from a fork of the repository, make sure to sync the forked `main` branch with the upstream `main` branch first.
+
+You can invoke the script by calling `yarn release`. If new dependencies have been added to the integration package, install them first (i.e. run `yarn`, then `yarn release`).
 
 There are three parameters which can be passed to this script, one required and two optional.
 
-- __Required__: `--workspace <workspace name>`. eg: `--workspace @langchain/core` (always appended as the first flag when running `yarn release`)
-- __Optional__: `--bump-deps` eg `--bump-deps` Will find all packages in the repo which depend on this workspace and checkout a new branch, update the dep version, run yarn install, commit & push to new branch.
-- __Optional__: `--tag <tag>` eg `--tag beta` Add a tag to the NPM release.
+- __Required__: `<workspace name>`. eg: `@langchain/core` The name of the package to release. Can be found in the `name` value of the package's `package.json`
+- __Optional__: `--bump-deps` eg `--bump-deps` Will find all packages in the repo which depend on this workspace and checkout a new branch, update the dep version, run yarn install, commit & push to new branch. Generally, this is not necessary.
+- __Optional__: `--tag <tag>` eg `--tag beta` Add a tag to the NPM release. Useful if you want to push a release candidate.
 
 This script automatically bumps the package version, creates a new release branch with the changes, pushes the branch to GitHub, uses `release-it` to automatically release to NPM, and more depending on the flags passed.
 
 Halfway through this script, you'll be prompted to enter an NPM OTP (typically from an authenticator app). This value is not stored anywhere and is only used to authenticate the NPM release.
 
-Full example: `yarn release @langchain/core --bump-deps --tag beta`. 
+> **Note** Unless releasing `langchain`, `no` should be answered to all prompts following `Publish @langchain/<package> to npm?`. Then, the change should be manually committed with the following commit message: `<package>[patch]: Release <new version>`. E.g.: `groq[patch]: Release 0.0.1`.
+
+Docker must be running if releasing one of `langchain`, `@langchain/core` or `@langchain/community`. These packages run LangChain's export tests, which run inside docker containers.
+
+Full example: `yarn release @langchain/core`.
 
 ### 🛠️ Tooling
 
@@ -137,6 +147,7 @@ cd libs/langchain-community
 ```
 
 ### Setup
+**Prerequisite**: Node version 18+ is required. Please check node version `node -v` and update it if required.
 
 To get started, you will need to install the dependencies for the project. To do so, run:
 
@@ -235,24 +246,28 @@ import { OpenAI } from "langchain/llms/openai";
 We call these subpaths "entrypoints". In general, you should create a new entrypoint if you are adding a new integration with a 3rd party library. If you're adding self-contained functionality without any external dependencies, you can add it to an existing entrypoint.
 
 In order to declare a new entrypoint that users can import from, you
-should edit the `langchain/scripts/create-entrypoints.js` or `libs/langchain-community/scripts/create-entrypoints.js` script. To add an
+should edit the `langchain/langchain.config.js` or `libs/langchain-community/langchain.config.js` file. To add an
 entrypoint `tools` that imports from `tools/index.ts` you'd add
-the following to the `entrypoints` variable:
+the following to the `entrypoints` key inside the `config` variable:
 
 ```typescript
-const entrypoints = {
+// ...
+entrypoints: {
   // ...
   tools: "tools/index",
-};
+},
+// ...
 ```
 
-If you're adding a new integration which requires installing a third party depencency, you must add the entrypoint to the `requiresOptionalDependency` array, also located inside `langchain/scripts/create-entrypoints.js` or `libs/langchain-community/scripts/create-entrypoints.js`.
+If you're adding a new integration which requires installing a third party dependency, you must add the entrypoint to the `requiresOptionalDependency` array, also located inside `langchain/langchain.config.js` or `libs/langchain-community/langchain.config.js`.
 
 ```typescript
-const requiresOptionalDependency = [
+// ...
+requiresOptionalDependency: [
   // ...
   "tools/index",
-];
+],
+// ...
 ```
 
 This will make sure the entrypoint is included in the published package,
@@ -261,6 +276,32 @@ and in generated documentation.
 ## Documentation
 
 ### Contribute Documentation
+
+#### Install dependencies
+
+##### Note: you only need to follow these steps if you are building the docs site locally.
+
+1. [Quarto](https://quarto.org/) - package that converts Jupyter notebooks (`.ipynb` files) into `.mdx` files for serving in Docusaurus.
+2. `yarn build --filter=core_docs` - It's as simple as that! (or you can simply run `yarn build` from `docs/core_docs/`)
+
+All notebooks are converted to `.md` files and automatically gitignored. If you would like to create a non notebook doc, it must be a `.mdx` file.
+
+### Writing Notebooks
+
+When adding new dependencies inside the notebook you must update the import map inside `deno.json` in the root of the LangChain repo.
+
+This is required because the notebooks use the Deno runtime, and Deno formats imports differently than Node.js.
+
+Example:
+
+```typescript
+// Import in Node:
+import { z } from "zod";
+// Import in Deno:
+import { z } from "npm:/zod";
+```
+
+See examples inside `deno.json` for more details.
 
 Docs are largely autogenerated by [TypeDoc](https://typedoc.org/) from the code.
 

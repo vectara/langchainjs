@@ -1,5 +1,5 @@
-import { MongoDBAtlasVectorSearch } from "langchain/vectorstores/mongodb_atlas";
-import { CohereEmbeddings } from "langchain/embeddings/cohere";
+import { MongoDBAtlasVectorSearch } from "@langchain/mongodb";
+import { CohereEmbeddings } from "@langchain/cohere";
 import { MongoClient } from "mongodb";
 
 const client = new MongoClient(process.env.MONGODB_ATLAS_URI || "");
@@ -30,7 +30,7 @@ const retriever = await vectorStore.asRetriever({
   },
 });
 
-const retrieverOutput = await retriever.getRelevantDocuments("Hello world");
+const retrieverOutput = await retriever.invoke("Hello world");
 
 console.log(retrieverOutput);
 

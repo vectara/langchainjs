@@ -55,7 +55,7 @@ const model = new ChatGoogleGenerativeAI({
   modelName: "gemini-pro",
   maxOutputTokens: 2048,
 });
-const response = await mode.invoke(new HumanMessage("Hello world!"));
+const response = await model.invoke(new HumanMessage("Hello world!"));
 ```
 
 #### Multimodal inputs
@@ -160,4 +160,4 @@ yarn lint && yarn format
 
 ### Adding new entrypoints
 
-If you add a new file to be exported, either import & re-export from `src/index.ts`, or add it to `scripts/create-entrypoints.js` and run `yarn build` to generate the new entrypoint.
+If you add a new file to be exported, either import & re-export from `src/index.ts`, or add it to the `entrypoints` field in the `config` variable located inside `langchain.config.js` and run `yarn build` to generate the new entrypoint.

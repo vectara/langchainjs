@@ -1,7 +1,7 @@
 import { ChatOpenAI } from "@langchain/openai";
 import type { BasePromptTemplate } from "@langchain/core/prompts";
 
-import { Calculator } from "langchain/tools/calculator";
+import { Calculator } from "@langchain/community/tools/calculator";
 import { pull } from "langchain/hub";
 import { AgentExecutor, createReactAgent } from "langchain/agents";
 
@@ -9,7 +9,7 @@ import { AgentExecutor, createReactAgent } from "langchain/agents";
 const tools = [new Calculator()];
 
 const llm = new ChatOpenAI({
-  modelName: "gpt-3.5-turbo",
+  model: "gpt-3.5-turbo",
   temperature: 0,
 });
 

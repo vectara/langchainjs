@@ -1,4 +1,7 @@
 import { Client } from "langsmith";
+import { RunTree } from "langsmith/run_trees";
+import { getCurrentRunTree } from "langsmith/singletons/traceable";
+
 import {
   BaseRun,
   RunCreate,
@@ -13,11 +16,20 @@ export interface Run extends BaseRun {
   id: string;
   child_runs: this[];
   child_execution_order: number;
+  dotted_order?: string;
+  trace_id?: string;
+}
+
+export interface RunCreate2 extends RunCreate {
+  trace_id?: string;
+  dotted_order?: string;
 }
 
 export interface RunUpdate extends BaseRunUpdate {
   events: BaseRun["events"];
   inputs: KVMap;
+  trace_id?: string;
+  dotted_order?: string;
 }
 
 export interface LangChainTracerFields extends BaseCallbackHandlerInput {
@@ -48,6 +60,40 @@ export class LangChainTracer
       getEnvironmentVariable("LANGCHAIN_SESSION");
     this.exampleId = exampleId;
     this.client = client ?? new Client({});
+
+    // if we're inside traceable, we can obtain the traceable tree
+    // and populate the run map, which is used to correctly
+    // infer dotted order and execution order
+    const traceableTree = this.getTraceableRunTree();
+    if (traceableTree) {
+      let rootRun: RunTree = traceableTree;
+      const visited = new Set<string>();
+      while (rootRun.parent_run) {
+        if (visited.has(rootRun.id)) break;
+        visited.add(rootRun.id);
+
+        if (!rootRun.parent_run) break;
+        rootRun = rootRun.parent_run as RunTree;
+      }
+      visited.clear();
+
+      const queue = [rootRun];
+      while (queue.length > 0) {
+        const current = queue.shift();
+        if (!current || visited.has(current.id)) continue;
+        visited.add(current.id);
+
+        // @ts-expect-error Types of property 'events' are incompatible.
+        this.runMap.set(current.id, current);
+        if (current.child_runs) {
+          queue.push(...current.child_runs);
+        }
+      }
+
+      this.client = traceableTree.client ?? this.client;
+      this.projectName = traceableTree.project_name ?? this.projectName;
+      this.exampleId = traceableTree.reference_example_id ?? this.exampleId;
+    }
   }
 
   private async _convertToCreate(
@@ -68,70 +114,37 @@ export class LangChainTracer
 
   protected async persistRun(_run: Run): Promise<void> {}
 
-  protected async _persistRunSingle(run: Run): Promise<void> {
-    const persistedRun: RunCreate = await this._convertToCreate(
+  async onRunCreate(run: Run): Promise<void> {
+    const persistedRun: RunCreate2 = await this._convertToCreate(
       run,
       this.exampleId
     );
     await this.client.createRun(persistedRun);
   }
 
-  protected async _updateRunSingle(run: Run): Promise<void> {
+  async onRunUpdate(run: Run): Promise<void> {
     const runUpdate: RunUpdate = {
       end_time: run.end_time,
       error: run.error,
       outputs: run.outputs,
       events: run.events,
       inputs: run.inputs,
+      trace_id: run.trace_id,
+      dotted_order: run.dotted_order,
+      parent_run_id: run.parent_run_id,
     };
     await this.client.updateRun(run.id, runUpdate);
   }
 
-  async onRetrieverStart(run: Run): Promise<void> {
-    await this._persistRunSingle(run);
+  getRun(id: string): Run | undefined {
+    return this.runMap.get(id);
   }
 
-  async onRetrieverEnd(run: Run): Promise<void> {
-    await this._updateRunSingle(run);
-  }
-
-  async onRetrieverError(run: Run): Promise<void> {
-    await this._updateRunSingle(run);
-  }
-
-  async onLLMStart(run: Run): Promise<void> {
-    await this._persistRunSingle(run);
-  }
-
-  async onLLMEnd(run: Run): Promise<void> {
-    await this._updateRunSingle(run);
-  }
-
-  async onLLMError(run: Run): Promise<void> {
-    await this._updateRunSingle(run);
-  }
-
-  async onChainStart(run: Run): Promise<void> {
-    await this._persistRunSingle(run);
-  }
-
-  async onChainEnd(run: Run): Promise<void> {
-    await this._updateRunSingle(run);
-  }
-
-  async onChainError(run: Run): Promise<void> {
-    await this._updateRunSingle(run);
-  }
-
-  async onToolStart(run: Run): Promise<void> {
-    await this._persistRunSingle(run);
-  }
-
-  async onToolEnd(run: Run): Promise<void> {
-    await this._updateRunSingle(run);
-  }
-
-  async onToolError(run: Run): Promise<void> {
-    await this._updateRunSingle(run);
+  getTraceableRunTree(): RunTree | undefined {
+    try {
+      return getCurrentRunTree();
+    } catch {
+      return undefined;
+    }
   }
 }

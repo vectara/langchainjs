@@ -1,14 +1,23 @@
 import ignore, { Ignore } from "ignore";
 import binaryExtensions from "binary-extensions";
 
-import { Document } from "../../document.js";
+import { Document } from "@langchain/core/documents";
+import { getEnvironmentVariable } from "@langchain/core/utils/env";
+import {
+  AsyncCaller,
+  AsyncCallerParams,
+} from "@langchain/core/utils/async_caller";
 import { BaseDocumentLoader } from "../base.js";
 import { UnknownHandling } from "../fs/directory.js";
 import { extname } from "../../util/extname.js";
-import { getEnvironmentVariable } from "../../util/env.js";
-import { AsyncCaller, AsyncCallerParams } from "../../util/async_caller.js";
+import { logVersion020MigrationWarning } from "../../util/entrypoint_deprecation.js";
 
-const extensions = new Set(binaryExtensions);
+/* #__PURE__ */ logVersion020MigrationWarning({
+  oldEntrypointName: "document_loaders/web/github",
+  newPackageName: "@langchain/community",
+});
+
+const extensions = /* #__PURE__ */ new Set(binaryExtensions);
 
 /**
  * A function that checks if a file path is a binary file based on its
@@ -21,6 +30,8 @@ function isBinaryPath(name: string) {
 }
 
 /**
+ * @deprecated - Import from "@langchain/community/document_loaders/web/github" instead. This entrypoint will be removed in 0.3.0.
+ *
  * An interface that represents a file in a GitHub repository. It has
  * properties for the file name, path, SHA, size, URLs, type, and links.
  */
@@ -61,6 +72,8 @@ interface SubmoduleInfo {
 }
 
 /**
+ * @deprecated - Import from "@langchain/community/document_loaders/web/github" instead. This entrypoint will be removed in 0.3.0.
+ *
  * An interface that represents the parameters for the GithubRepoLoader
  * class. It extends the AsyncCallerParams interface and adds additional
  * properties specific to the GitHub repository loader.
@@ -99,6 +112,8 @@ export interface GithubRepoLoaderParams extends AsyncCallerParams {
 }
 
 /**
+ * @deprecated - Import from "@langchain/community/document_loaders/web/github" instead. This entrypoint will be removed in 0.3.0.
+ *
  * A class that extends the BaseDocumentLoader and implements the
  * GithubRepoLoaderParams interface. It represents a document loader for
  * loading files from a GitHub repository.
@@ -309,13 +324,18 @@ export class GithubRepoLoader
   private async parseGitmodules(
     gitmodulesContent: string
   ): Promise<SubmoduleInfo[]> {
+    let validGitmodulesContent = gitmodulesContent;
+    // in case the .gitmodules file does not end with a newline, we add one to make the regex work
+    if (!validGitmodulesContent.endsWith("\n")) {
+      validGitmodulesContent += "\n";
+    }
     // catches the initial line of submodule entries
     const submodulePattern = /\[submodule "(.*?)"]\n((\s+.*?\s*=\s*.*?\n)*)/g;
     // catches the properties of a submodule
     const keyValuePattern = /\s+(.*?)\s*=\s*(.*?)\s/g;
 
     const submoduleInfos = [];
-    for (const [, name, propertyLines] of gitmodulesContent.matchAll(
+    for (const [, name, propertyLines] of validGitmodulesContent.matchAll(
       submodulePattern
     )) {
       if (!name || !propertyLines) {

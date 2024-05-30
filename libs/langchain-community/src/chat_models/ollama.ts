@@ -2,6 +2,7 @@ import type { BaseLanguageModelCallOptions } from "@langchain/core/language_mode
 import {
   SimpleChatModel,
   type BaseChatModelParams,
+  LangSmithParams,
 } from "@langchain/core/language_models/chat_models";
 import { CallbackManagerForLLMRun } from "@langchain/core/callbacks/manager";
 import {
@@ -66,11 +67,15 @@ export class ChatOllama
 
   baseUrl = "http://localhost:11434";
 
+  keepAlive = "5m";
+
   embeddingOnly?: boolean;
 
   f16KV?: boolean;
 
   frequencyPenalty?: number;
+
+  headers?: Record<string, string>;
 
   logitsAll?: boolean;
 
@@ -93,6 +98,8 @@ export class ChatOllama
   numGqa?: number;
 
   numKeep?: number;
+
+  numPredict?: number;
 
   numThread?: number;
 
@@ -134,9 +141,11 @@ export class ChatOllama
     this.baseUrl = fields.baseUrl?.endsWith("/")
       ? fields.baseUrl.slice(0, -1)
       : fields.baseUrl ?? this.baseUrl;
+    this.keepAlive = fields.keepAlive ?? this.keepAlive;
     this.embeddingOnly = fields.embeddingOnly;
     this.f16KV = fields.f16KV;
     this.frequencyPenalty = fields.frequencyPenalty;
+    this.headers = fields.headers;
     this.logitsAll = fields.logitsAll;
     this.lowVram = fields.lowVram;
     this.mainGpu = fields.mainGpu;
@@ -148,6 +157,7 @@ export class ChatOllama
     this.numGpu = fields.numGpu;
     this.numGqa = fields.numGqa;
     this.numKeep = fields.numKeep;
+    this.numPredict = fields.numPredict;
     this.numThread = fields.numThread;
     this.penalizeNewline = fields.penalizeNewline;
     this.presencePenalty = fields.presencePenalty;
@@ -167,6 +177,18 @@ export class ChatOllama
     this.format = fields.format;
   }
 
+  protected getLsParams(options: this["ParsedCallOptions"]): LangSmithParams {
+    const params = this.invocationParams(options);
+    return {
+      ls_provider: "ollama",
+      ls_model_name: this.model,
+      ls_model_type: "chat",
+      ls_temperature: this.temperature ?? undefined,
+      ls_stop: this.stop,
+      ls_max_tokens: params.options.num_predict,
+    };
+  }
+
   _llmType() {
     return "ollama";
   }
@@ -181,6 +203,7 @@ export class ChatOllama
     return {
       model: this.model,
       format: this.format,
+      keep_alive: this.keepAlive,
       options: {
         embedding_only: this.embeddingOnly,
         f16_kv: this.f16KV,
@@ -196,6 +219,7 @@ export class ChatOllama
         num_gpu: this.numGpu,
         num_gqa: this.numGqa,
         num_keep: this.numKeep,
+        num_predict: this.numPredict,
         num_thread: this.numThread,
         penalize_newline: this.penalizeNewline,
         presence_penalty: this.presencePenalty,
@@ -232,7 +256,10 @@ export class ChatOllama
         ...this.invocationParams(options),
         prompt: this._formatMessagesAsPrompt(input),
       },
-      options
+      {
+        ...options,
+        headers: this.headers,
+      }
     );
     for await (const chunk of stream) {
       if (!chunk.done) {
@@ -272,7 +299,10 @@ export class ChatOllama
             ...this.invocationParams(options),
             messages: this._convertMessagesToOllamaMessages(input),
           },
-          options
+          {
+            ...options,
+            headers: this.headers,
+          }
         )
       );
       for await (const chunk of stream) {

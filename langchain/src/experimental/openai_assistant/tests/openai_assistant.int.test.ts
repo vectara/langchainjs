@@ -2,9 +2,8 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 
 import { z } from "zod";
-import { OpenAIClient } from "@langchain/openai";
+import { StructuredTool } from "@langchain/core/tools";
 import { AgentExecutor } from "../../../agents/executor.js";
-import { StructuredTool } from "../../../tools/base.js";
 import { OpenAIAssistantRunnable } from "../index.js";
 
 function getCurrentWeather(location: string, _unit = "fahrenheit") {
@@ -178,9 +177,8 @@ test.skip("Created OpenAIAssistantRunnable is invokeable", async () => {
       }
     ]
    */
-  const content = (
-    assistantResponse as OpenAIClient.Beta.Threads.ThreadMessage[]
-  ).flatMap((res) => res.content);
+  const content = // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (assistantResponse as any[]).flatMap((res) => res.content);
   console.log(content);
   /**
     [

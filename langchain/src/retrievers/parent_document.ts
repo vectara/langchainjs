@@ -4,12 +4,19 @@ import {
   type VectorStoreInterface,
   type VectorStoreRetrieverInterface,
 } from "@langchain/core/vectorstores";
-import { Document } from "../document.js";
-import { TextSplitter } from "../text_splitter.js";
+import { Document } from "@langchain/core/documents";
+import type { BaseDocumentCompressor } from "./document_compressors/index.js";
+import {
+  TextSplitter,
+  TextSplitterChunkHeaderOptions,
+} from "../text_splitter.js";
 import {
   MultiVectorRetriever,
   type MultiVectorRetrieverInput,
 } from "./multi_vector.js";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type SubDocs = Document<Record<string, any>>[];
 
 /**
  * Interface for the fields required to initialize a
@@ -23,6 +30,8 @@ export type ParentDocumentRetrieverFields = MultiVectorRetrieverInput & {
    * the `.similaritySearch` method of the vectorstore.
    */
   childDocumentRetriever?: VectorStoreRetrieverInterface<VectorStoreInterface>;
+  documentCompressor?: BaseDocumentCompressor | undefined;
+  documentCompressorFilteringFn?: (docs: SubDocs) => SubDocs;
 };
 
 /**
@@ -37,7 +46,7 @@ export type ParentDocumentRetrieverFields = MultiVectorRetrieverInput & {
  * ```typescript
  * const retriever = new ParentDocumentRetriever({
  *   vectorstore: new MemoryVectorStore(new OpenAIEmbeddings()),
- *   docstore: new InMemoryStore(),
+ *   byteStore: new InMemoryStore<Uint8Array>(),
  *   parentSplitter: new RecursiveCharacterTextSplitter({
  *     chunkOverlap: 0,
  *     chunkSize: 500,
@@ -78,25 +87,36 @@ export class ParentDocumentRetriever extends MultiVectorRetriever {
     | VectorStoreRetrieverInterface<VectorStoreInterface>
     | undefined;
 
+  documentCompressor: BaseDocumentCompressor | undefined;
+
+  documentCompressorFilteringFn?: ParentDocumentRetrieverFields["documentCompressorFilteringFn"];
+
   constructor(fields: ParentDocumentRetrieverFields) {
     super(fields);
     this.vectorstore = fields.vectorstore;
-    this.docstore = fields.docstore;
     this.childSplitter = fields.childSplitter;
     this.parentSplitter = fields.parentSplitter;
     this.idKey = fields.idKey ?? this.idKey;
     this.childK = fields.childK;
     this.parentK = fields.parentK;
     this.childDocumentRetriever = fields.childDocumentRetriever;
+    this.documentCompressor = fields.documentCompressor;
+    this.documentCompressorFilteringFn = fields.documentCompressorFilteringFn;
   }
 
   async _getRelevantDocuments(query: string): Promise<Document[]> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let subDocs: Document<Record<string, any>>[] = [];
+    let subDocs: SubDocs = [];
     if (this.childDocumentRetriever) {
       subDocs = await this.childDocumentRetriever.getRelevantDocuments(query);
     } else {
       subDocs = await this.vectorstore.similaritySearch(query, this.childK);
+    }
+
+    if (this.documentCompressor && subDocs.length) {
+      subDocs = await this.documentCompressor.compressDocuments(subDocs, query);
+      if (this.documentCompressorFilteringFn) {
+        subDocs = this.documentCompressorFilteringFn(subDocs);
+      }
     }
 
     // Maintain order
@@ -127,15 +147,21 @@ export class ParentDocumentRetriever extends MultiVectorRetriever {
    * This can be false if and only if `ids` are provided. You may want
    *   to set this to False if the documents are already in the docstore
    *   and you don't want to re-add them.
+   * @param config.chunkHeaderOptions Object with options for adding Contextual chunk headers
    */
   async addDocuments(
     docs: Document[],
     config?: {
       ids?: string[];
       addToDocstore?: boolean;
+      childDocChunkHeaderOptions?: TextSplitterChunkHeaderOptions;
     }
   ): Promise<void> {
-    const { ids, addToDocstore = true } = config ?? {};
+    const {
+      ids,
+      addToDocstore = true,
+      childDocChunkHeaderOptions = {},
+    } = config ?? {};
     const parentDocs = this.parentSplitter
       ? await this.parentSplitter.splitDocuments(docs)
       : docs;
@@ -160,7 +186,10 @@ export class ParentDocumentRetriever extends MultiVectorRetriever {
     for (let i = 0; i < parentDocs.length; i += 1) {
       const parentDoc = parentDocs[i];
       const parentDocId = parentDocIds[i];
-      const subDocs = await this.childSplitter.splitDocuments([parentDoc]);
+      const subDocs = await this.childSplitter.splitDocuments(
+        [parentDoc],
+        childDocChunkHeaderOptions
+      );
       const taggedSubDocs = subDocs.map(
         (subDoc: Document) =>
           new Document({

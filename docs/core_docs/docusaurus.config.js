@@ -5,22 +5,26 @@
 // eslint-disable-next-line import/no-extraneous-dependencies
 const { ProvidePlugin } = require("webpack");
 const path = require("path");
+require("dotenv").config();
 
 const examplesPath = path.resolve(__dirname, "..", "..", "examples", "src");
+const mdxComponentsPath = path.resolve(__dirname, "docs", "mdx_components");
 
 const baseLightCodeBlockTheme = require("prism-react-renderer/themes/vsLight");
 const baseDarkCodeBlockTheme = require("prism-react-renderer/themes/vsDark");
+
+const baseUrl = "/v0.2/";
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
   title: "🦜️🔗 Langchain",
   tagline: "LangChain JS Docs",
-  favicon: "img/favicon.ico",
+  favicon: "img/brand/favicon.png",
   // Set the production url of your site here
   url: "https://js.langchain.com",
   // Set the /<baseUrl>/ pathname under which your site is served
   // For GitHub pages deployment, it is often '/<projectName>/'
-  baseUrl: "/",
+  baseUrl,
 
   onBrokenLinks: "throw",
   onBrokenMarkdownLinks: "throw",
@@ -41,6 +45,7 @@ const config = {
           },
           alias: {
             "@examples": examplesPath,
+            "@mdx_components": mdxComponentsPath,
             react: path.resolve("../../node_modules/react"),
           },
         },
@@ -48,7 +53,11 @@ const config = {
           rules: [
             {
               test: examplesPath,
-              use: ["json-loader", "./code-block-loader.js"],
+              use: ["json-loader", "./scripts/code-block-loader.js"],
+            },
+            {
+              test: /\.ya?ml$/,
+              use: "yaml-loader",
             },
             {
               test: /\.m?js/,
@@ -88,6 +97,9 @@ const config = {
                 // eslint-disable-next-line no-param-reassign
                 subItem.label = subItem.label.replace(/\//g, "/\u200B");
               }
+              if (args.item.className) {
+                subItem.className = args.item.className;
+              }
             });
             return sidebarItems;
           },
@@ -123,6 +135,11 @@ const config = {
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
+      announcementBar: {
+        content:
+          'LangChain 0.2 is out! Leave feedback on the v0.2 docs <a href="https://github.com/langchain-ai/langchainjs/discussions/5386">here</a>. You can view the v0.1 docs <a href="/v0.1/docs/get_started/introduction/">here</a>.',
+        isCloseable: true,
+      },
       prism: {
         theme: {
           ...baseLightCodeBlockTheme,
@@ -139,21 +156,13 @@ const config = {
           },
         },
       },
-      image: "img/parrot-chainlink-icon.png",
+      image: "img/brand/theme-image.png",
       navbar: {
-        title: "🦜️🔗 LangChain",
+        logo: {
+          src: "img/brand/wordmark.png",
+          srcDark: "img/brand/wordmark-dark.png",
+        },
         items: [
-          {
-            to: "/docs/get_started/introduction",
-            label: "Docs",
-            position: "left",
-          },
-          {
-            type: "docSidebar",
-            position: "left",
-            sidebarId: "use_cases",
-            label: "Use cases",
-          },
           {
             type: "docSidebar",
             position: "left",
@@ -161,7 +170,7 @@ const config = {
             label: "Integrations",
           },
           {
-            href: "https://api.js.langchain.com",
+            href: "https://v02.api.js.langchain.com",
             label: "API Reference",
             position: "left",
           },
@@ -170,6 +179,10 @@ const config = {
             label: "More",
             position: "left",
             items: [
+              {
+                to: "/docs/people/",
+                label: "People",
+              },
               {
                 to: "/docs/community",
                 label: "Community",
@@ -186,16 +199,31 @@ const config = {
           },
           {
             type: "dropdown",
-            label: "Also by LangChain",
+            label: "v0.2",
             position: "right",
             items: [
               {
-                href: "https://chat.langchain.com",
-                label: "Chat our docs",
+                label: "v0.2",
+                href: "/docs/introduction",
               },
+              {
+                label: "v0.1",
+                href: "https://js.langchain.com/v0.1/docs/get_started/introduction",
+              },
+            ],
+          },
+          {
+            type: "dropdown",
+            label: "🦜🔗",
+            position: "right",
+            items: [
               {
                 href: "https://smith.langchain.com",
                 label: "LangSmith",
+              },
+              {
+                href: "https://docs.smith.langchain.com",
+                label: "LangSmith Docs",
               },
               {
                 href: "https://smith.langchain.com/hub",
@@ -206,10 +234,15 @@ const config = {
                 label: "LangServe",
               },
               {
-                href: "https://python.langchain.com/en/latest/",
+                href: "https://python.langchain.com/",
                 label: "Python Docs",
               },
             ],
+          },
+          {
+            href: "https://chatjs.langchain.com",
+            label: "Chat",
+            position: "right",
           },
           // Please keep GitHub link to the right for consistency.
           {
@@ -273,19 +306,24 @@ const config = {
         // this is linked to erick@langchain.dev currently
         apiKey: "180851bbb9ba0ef6be9214849d6efeaf",
 
-        indexName: "js-langchain",
+        indexName: "js-langchain-0.2",
 
-        contextualSearch: true,
+        contextualSearch: false,
       },
     }),
 
   scripts: [
-    "/js/google_analytics.js",
+    baseUrl + "js/google_analytics.js",
     {
       src: "https://www.googletagmanager.com/gtag/js?id=G-TVSL7JBE9Y",
       async: true,
     },
   ],
+
+  customFields: {
+    supabasePublicKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLIC_KEY,
+    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+  },
 };
 
 module.exports = config;

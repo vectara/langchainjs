@@ -1,7 +1,7 @@
 import { getEnvironmentVariable } from "@langchain/core/utils/env";
 import { Embeddings, type EmbeddingsParams } from "@langchain/core/embeddings";
-import { type EmbeddingsResult as MistralAIEmbeddingsResult } from "@mistralai/mistralai";
 import { chunkArray } from "@langchain/core/utils/chunk_array";
+import { EmbeddingResponse } from "@mistralai/mistralai";
 
 /**
  * Interface for MistralAIEmbeddings parameters. Extends EmbeddingsParams and
@@ -15,9 +15,15 @@ export interface MistralAIEmbeddingsParams extends EmbeddingsParams {
   apiKey?: string;
   /**
    * The name of the model to use.
+   * Alias for `model`.
    * @default {"mistral-embed"}
    */
   modelName?: string;
+  /**
+   * The name of the model to use.
+   * @default {"mistral-embed"}
+   */
+  model?: string;
   /**
    * The format of the output data.
    * @default {"float"}
@@ -49,6 +55,8 @@ export class MistralAIEmbeddings
 {
   modelName = "mistral-embed";
 
+  model = "mistral-embed";
+
   encodingFormat = "float";
 
   batchSize = 512;
@@ -67,7 +75,8 @@ export class MistralAIEmbeddings
     }
     this.apiKey = apiKey;
     this.endpoint = fields?.endpoint;
-    this.modelName = fields?.modelName ?? this.modelName;
+    this.modelName = fields?.model ?? fields?.modelName ?? this.model;
+    this.model = this.modelName;
     this.encodingFormat = fields?.encodingFormat ?? this.encodingFormat;
     this.batchSize = fields?.batchSize ?? this.batchSize;
     this.stripNewLines = fields?.stripNewLines ?? this.stripNewLines;
@@ -124,19 +133,20 @@ export class MistralAIEmbeddings
    */
   private async embeddingWithRetry(
     input: string | Array<string>
-  ): Promise<MistralAIEmbeddingsResult> {
+  ): Promise<EmbeddingResponse> {
+    const { MistralClient } = await this.imports();
+    const client = new MistralClient(this.apiKey, this.endpoint);
     return this.caller.call(async () => {
-      const { MistralClient } = await this.imports();
-      const client = new MistralClient(this.apiKey, this.endpoint);
       const res = await client.embeddings({
-        model: this.modelName,
+        model: this.model,
         input,
       });
       return res;
     });
   }
 
-  async imports() {
+  /** @ignore */
+  private async imports() {
     const { default: MistralClient } = await import("@mistralai/mistralai");
     return { MistralClient };
   }

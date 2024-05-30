@@ -1,6 +1,6 @@
 import type { BaseLanguageModelInterface } from "@langchain/core/language_models/base";
 import type { ToolInterface } from "@langchain/core/tools";
-import { DynamicTool } from "../../../tools/dynamic.js";
+import { DynamicTool, BaseToolkit } from "@langchain/core/tools";
 import { JsonSpec } from "../../../tools/json.js";
 import { AgentExecutor } from "../../executor.js";
 import {
@@ -10,7 +10,6 @@ import {
 } from "./prompt.js";
 import { LLMChain } from "../../../chains/llm_chain.js";
 import { ZeroShotCreatePromptArgs, ZeroShotAgent } from "../../mrkl/index.js";
-import { Toolkit } from "../base.js";
 import {
   Headers,
   RequestsGetTool,
@@ -22,7 +21,7 @@ import { createJsonAgent, JsonToolkit } from "../json/json.js";
  * Represents a toolkit for making HTTP requests. It initializes the
  * request tools based on the provided headers.
  */
-export class RequestsToolkit extends Toolkit {
+export class RequestsToolkit extends BaseToolkit {
   tools: ToolInterface[];
 
   constructor(headers?: Headers) {

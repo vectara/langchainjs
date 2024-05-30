@@ -1,19 +1,21 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { RunnableSequence } from "@langchain/core/runnables";
-import { AgentExecutor, type AgentStep } from "langchain/agents";
+import { AgentExecutor } from "langchain/agents";
 import { formatToOpenAIFunctionMessages } from "langchain/agents/format_scratchpad";
 import {
   ChatPromptTemplate,
   MessagesPlaceholder,
 } from "@langchain/core/prompts";
-import { formatToOpenAIFunction, DynamicTool } from "langchain/tools";
+import { convertToOpenAIFunction } from "@langchain/core/utils/function_calling";
 import { OpenAIFunctionsAgentOutputParser } from "langchain/agents/openai/output_parser";
 import { AIMessage, BaseMessage, HumanMessage } from "@langchain/core/messages";
+import { DynamicTool } from "@langchain/core/tools";
+import { AgentStep } from "@langchain/core/agents";
 
 /**
  * Define your chat model to use.
  */
-const model = new ChatOpenAI({ modelName: "gpt-3.5-turbo", temperature: 0 });
+const model = new ChatOpenAI({ model: "gpt-3.5-turbo", temperature: 0 });
 
 const customTool = new DynamicTool({
   name: "get_word_length",
@@ -38,11 +40,11 @@ const prompt = ChatPromptTemplate.fromMessages([
 
 /**
  * Bind the tools to the LLM.
- * Here we're using the `formatToOpenAIFunction` util function
+ * Here we're using the `convertToOpenAIFunction` util function
  * to format our tools into the proper schema for OpenAI functions.
  */
 const modelWithFunctions = model.bind({
-  functions: tools.map((tool) => formatToOpenAIFunction(tool)),
+  functions: tools.map((tool) => convertToOpenAIFunction(tool)),
 });
 
 /**

@@ -1,10 +1,26 @@
-import type { CheerioAPI, load as LoadT, SelectorType } from "cheerio";
-import { Document } from "../../document.js";
+import type {
+  CheerioAPI,
+  CheerioOptions,
+  load as LoadT,
+  SelectorType,
+} from "cheerio";
+import { Document } from "@langchain/core/documents";
+import {
+  AsyncCaller,
+  AsyncCallerParams,
+} from "@langchain/core/utils/async_caller";
 import { BaseDocumentLoader } from "../base.js";
 import type { DocumentLoader } from "../base.js";
-import { AsyncCaller, AsyncCallerParams } from "../../util/async_caller.js";
+import { logVersion020MigrationWarning } from "../../util/entrypoint_deprecation.js";
+
+/* #__PURE__ */ logVersion020MigrationWarning({
+  oldEntrypointName: "document_loaders/web/cheerio",
+  newPackageName: "@langchain/community",
+});
 
 /**
+ * @deprecated - Import from "@langchain/community/document_loaders/web/cheerio" instead. This entrypoint will be removed in 0.3.0.
+ *
  * Represents the parameters for configuring the CheerioWebBaseLoader. It
  * extends the AsyncCallerParams interface and adds additional parameters
  * specific to web-based loaders.
@@ -28,6 +44,8 @@ export interface WebBaseLoaderParams extends AsyncCallerParams {
 }
 
 /**
+ * @deprecated - Import from "@langchain/community/document_loaders/web/cheerio" instead. This entrypoint will be removed in 0.3.0.
+ *
  * A class that extends the BaseDocumentLoader and implements the
  * DocumentLoader interface. It represents a document loader for loading
  * web-based documents using Cheerio.
@@ -59,21 +77,41 @@ export class CheerioWebBaseLoader
     this.textDecoder = textDecoder;
   }
 
+  /**
+   * Fetches web documents from the given array of URLs and loads them using Cheerio.
+   * It returns an array of CheerioAPI instances.
+   * @param urls An array of URLs to fetch and load.
+   * @returns A Promise that resolves to an array of CheerioAPI instances.
+   */
+  static async scrapeAll(
+    urls: string[],
+    caller: AsyncCaller,
+    timeout: number | undefined,
+    textDecoder?: TextDecoder,
+    options?: CheerioOptions
+  ): Promise<CheerioAPI[]> {
+    return Promise.all(
+      urls.map((url) =>
+        CheerioWebBaseLoader._scrape(url, caller, timeout, textDecoder, options)
+      )
+    );
+  }
+
   static async _scrape(
     url: string,
     caller: AsyncCaller,
     timeout: number | undefined,
-    textDecoder?: TextDecoder
+    textDecoder?: TextDecoder,
+    options?: CheerioOptions
   ): Promise<CheerioAPI> {
     const { load } = await CheerioWebBaseLoader.imports();
     const response = await caller.call(fetch, url, {
       signal: timeout ? AbortSignal.timeout(timeout) : undefined,
     });
-
     const html =
       textDecoder?.decode(await response.arrayBuffer()) ??
       (await response.text());
-    return load(html);
+    return load(html, options);
   }
 
   /**

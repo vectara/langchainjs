@@ -46,11 +46,15 @@ export class Ollama extends LLM<OllamaCallOptions> implements OllamaInput {
 
   baseUrl = "http://localhost:11434";
 
+  keepAlive = "5m";
+
   embeddingOnly?: boolean;
 
   f16KV?: boolean;
 
   frequencyPenalty?: number;
+
+  headers?: Record<string, string>;
 
   logitsAll?: boolean;
 
@@ -73,6 +77,8 @@ export class Ollama extends LLM<OllamaCallOptions> implements OllamaInput {
   numGqa?: number;
 
   numKeep?: number;
+
+  numPredict?: number;
 
   numThread?: number;
 
@@ -114,7 +120,9 @@ export class Ollama extends LLM<OllamaCallOptions> implements OllamaInput {
     this.baseUrl = fields.baseUrl?.endsWith("/")
       ? fields.baseUrl.slice(0, -1)
       : fields.baseUrl ?? this.baseUrl;
+    this.keepAlive = fields.keepAlive ?? this.keepAlive;
 
+    this.headers = fields.headers ?? this.headers;
     this.embeddingOnly = fields.embeddingOnly;
     this.f16KV = fields.f16KV;
     this.frequencyPenalty = fields.frequencyPenalty;
@@ -129,6 +137,7 @@ export class Ollama extends LLM<OllamaCallOptions> implements OllamaInput {
     this.numGpu = fields.numGpu;
     this.numGqa = fields.numGqa;
     this.numKeep = fields.numKeep;
+    this.numPredict = fields.numPredict;
     this.numThread = fields.numThread;
     this.penalizeNewline = fields.penalizeNewline;
     this.presencePenalty = fields.presencePenalty;
@@ -156,6 +165,7 @@ export class Ollama extends LLM<OllamaCallOptions> implements OllamaInput {
     return {
       model: this.model,
       format: this.format,
+      keep_alive: this.keepAlive,
       images: options?.images,
       options: {
         embedding_only: this.embeddingOnly,
@@ -172,6 +182,7 @@ export class Ollama extends LLM<OllamaCallOptions> implements OllamaInput {
         num_gpu: this.numGpu,
         num_gqa: this.numGqa,
         num_keep: this.numKeep,
+        num_predict: this.numPredict,
         num_thread: this.numThread,
         penalize_newline: this.penalizeNewline,
         presence_penalty: this.presencePenalty,
@@ -201,7 +212,10 @@ export class Ollama extends LLM<OllamaCallOptions> implements OllamaInput {
       createOllamaGenerateStream(
         this.baseUrl,
         { ...this.invocationParams(options), prompt },
-        options
+        {
+          ...options,
+          headers: this.headers,
+        }
       )
     );
     for await (const chunk of stream) {

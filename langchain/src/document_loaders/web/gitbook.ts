@@ -1,6 +1,12 @@
 import type { CheerioAPI } from "cheerio";
-import { Document } from "../../document.js";
+import { Document } from "@langchain/core/documents";
 import { CheerioWebBaseLoader } from "./cheerio.js";
+import { logVersion020MigrationWarning } from "../../util/entrypoint_deprecation.js";
+
+/* #__PURE__ */ logVersion020MigrationWarning({
+  oldEntrypointName: "document_loaders/web/gitbook",
+  newPackageName: "@langchain/community",
+});
 
 /**
  * Interface representing the parameters for configuring the
@@ -12,17 +18,22 @@ interface GitbookLoaderParams {
 }
 
 /**
+ * @deprecated - Import from "@langchain/community/document_loaders/web/gitbook" instead. This entrypoint will be removed in 0.3.0.
+ *
  * Class representing a document loader specifically designed for loading
  * documents from Gitbook. It extends the CheerioWebBaseLoader.
  */
 export class GitbookLoader extends CheerioWebBaseLoader {
   shouldLoadAllPaths = false;
 
+  private readonly baseUrl: string;
+
   constructor(public webPath: string, params: GitbookLoaderParams = {}) {
     const path =
       params.shouldLoadAllPaths === true ? `${webPath}/sitemap.xml` : webPath;
     super(path);
 
+    this.baseUrl = webPath;
     this.webPath = path;
 
     this.shouldLoadAllPaths =
@@ -94,9 +105,14 @@ export class GitbookLoader extends CheerioWebBaseLoader {
 
     const documents: Document[] = [];
     for (const url of urls) {
-      console.log(`Fetching text from ${url}`);
-      const html = await GitbookLoader._scrape(url, this.caller, this.timeout);
-      documents.push(...this.loadPath(html, url));
+      const buildUrl = url.includes(this.baseUrl) ? url : this.baseUrl + url;
+      console.log(`Fetching text from ${buildUrl}`);
+      const html = await GitbookLoader._scrape(
+        buildUrl,
+        this.caller,
+        this.timeout
+      );
+      documents.push(...this.loadPath(html, buildUrl));
     }
     console.log(`Fetched ${documents.length} documents.`);
     return documents;

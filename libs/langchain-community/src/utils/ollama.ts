@@ -6,6 +6,8 @@ export interface OllamaInput {
   embeddingOnly?: boolean;
   f16KV?: boolean;
   frequencyPenalty?: number;
+  headers?: Record<string, string>;
+  keepAlive?: string;
   logitsAll?: boolean;
   lowVram?: boolean;
   mainGpu?: number;
@@ -19,6 +21,7 @@ export interface OllamaInput {
   numGpu?: number;
   numGqa?: number;
   numKeep?: number;
+  numPredict?: number;
   numThread?: number;
   penalizeNewline?: boolean;
   presencePenalty?: number;
@@ -58,6 +61,7 @@ export interface OllamaRequestParams {
     num_gqa?: number;
     num_keep?: number;
     num_thread?: number;
+    num_predict?: number;
     penalize_newline?: boolean;
     presence_penalty?: number;
     repeat_last_n?: number;
@@ -110,10 +114,14 @@ export type OllamaChatGenerationChunk = BaseOllamaGenerationChunk & {
   message: OllamaMessage;
 };
 
+export type OllamaCallOptions = BaseLanguageModelCallOptions & {
+  headers?: Record<string, string>;
+};
+
 async function* createOllamaStream(
   url: string,
   params: OllamaRequestParams,
-  options: BaseLanguageModelCallOptions
+  options: OllamaCallOptions
 ) {
   let formattedUrl = url;
   if (formattedUrl.startsWith("http://localhost:")) {
@@ -129,6 +137,7 @@ async function* createOllamaStream(
     body: JSON.stringify(params),
     headers: {
       "Content-Type": "application/json",
+      ...options.headers,
     },
     signal: options.signal,
   });
@@ -177,7 +186,7 @@ async function* createOllamaStream(
 export async function* createOllamaGenerateStream(
   baseUrl: string,
   params: OllamaGenerateRequestParams,
-  options: BaseLanguageModelCallOptions
+  options: OllamaCallOptions
 ): AsyncGenerator<OllamaGenerationChunk> {
   yield* createOllamaStream(`${baseUrl}/api/generate`, params, options);
 }
@@ -185,7 +194,7 @@ export async function* createOllamaGenerateStream(
 export async function* createOllamaChatStream(
   baseUrl: string,
   params: OllamaChatRequestParams,
-  options: BaseLanguageModelCallOptions
+  options: OllamaCallOptions
 ): AsyncGenerator<OllamaChatGenerationChunk> {
   yield* createOllamaStream(`${baseUrl}/api/chat`, params, options);
 }

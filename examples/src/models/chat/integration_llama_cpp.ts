@@ -1,11 +1,11 @@
-import { ChatLlamaCpp } from "langchain/chat_models/llama_cpp";
-import { HumanMessage } from "langchain/schema";
+import { ChatLlamaCpp } from "@langchain/community/chat_models/llama_cpp";
+import { HumanMessage } from "@langchain/core/messages";
 
 const llamaPath = "/Replace/with/path/to/your/model/gguf-llama2-q4_0.bin";
 
 const model = new ChatLlamaCpp({ modelPath: llamaPath });
 
-const response = await model.call([
+const response = await model.invoke([
   new HumanMessage({ content: "My name is John." }),
 ]);
 console.log({ response });

@@ -1,4 +1,4 @@
-import { OpenAIChat } from "langchain/llms/openai";
+import { OpenAIChat } from "@langchain/openai";
 
 export const run = async () => {
   const model = new OpenAIChat({
@@ -10,7 +10,7 @@ export const run = async () => {
     ],
     maxTokens: 50,
   });
-  const res = await model.call(
+  const res = await model.invoke(
     "What would be a good company name a company that makes colorful socks?"
   );
   console.log({ res });

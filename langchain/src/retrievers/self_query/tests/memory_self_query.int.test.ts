@@ -1,9 +1,8 @@
 import { test } from "@jest/globals";
-import { Document } from "../../../document.js";
-import { AttributeInfo } from "../../../schema/query_constructor.js";
-import { OpenAIEmbeddings } from "../../../embeddings/openai.js";
+import { Document } from "@langchain/core/documents";
+import { OpenAIEmbeddings, OpenAI } from "@langchain/openai";
+import { AttributeInfo } from "../../../chains/query_constructor/index.js";
 import { SelfQueryRetriever } from "../index.js";
-import { OpenAI } from "../../../llms/openai.js";
 import { FunctionalTranslator } from "../functional.js";
 import { MemoryVectorStore } from "../../../vectorstores/memory.js";
 
@@ -79,7 +78,7 @@ test("Memory Vector Store Self Query Retriever Test", async () => {
   });
   const documentContents = "Brief summary of a movie";
   const vectorStore = await MemoryVectorStore.fromDocuments(docs, embeddings);
-  const selfQueryRetriever = await SelfQueryRetriever.fromLLM({
+  const selfQueryRetriever = SelfQueryRetriever.fromLLM({
     llm,
     vectorStore,
     documentContents,
@@ -209,7 +208,7 @@ test("Memory Vector Store Self Query Retriever Test With Default Filter Or Merge
   });
   const documentContents = "Brief summary of a movie";
   const vectorStore = await MemoryVectorStore.fromDocuments(docs, embeddings);
-  const selfQueryRetriever = await SelfQueryRetriever.fromLLM({
+  const selfQueryRetriever = SelfQueryRetriever.fromLLM({
     llm,
     vectorStore,
     documentContents,
@@ -350,7 +349,7 @@ test("Memory Vector Store Self Query Retriever Test With Default Filter And Merg
   });
   const documentContents = "Brief summary of a movie";
   const vectorStore = await MemoryVectorStore.fromDocuments(docs, embeddings);
-  const selfQueryRetriever = await SelfQueryRetriever.fromLLM({
+  const selfQueryRetriever = SelfQueryRetriever.fromLLM({
     llm,
     vectorStore,
     documentContents,

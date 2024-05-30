@@ -8,7 +8,7 @@ const chatModel = new ChatOpenAI({});
 const embeddings = new OpenAIEmbeddings({});
 
 const loader = new CheerioWebBaseLoader(
-  "https://docs.smith.langchain.com/overview"
+  "https://docs.smith.langchain.com/user_guide"
 );
 
 const docs = await loader.load();
@@ -16,7 +16,7 @@ const docs = await loader.load();
 console.log(docs.length);
 console.log(docs[0].pageContent.length);
 
-import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
+import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 
 const splitter = new RecursiveCharacterTextSplitter();
 

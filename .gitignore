@@ -10,6 +10,7 @@ yarn-error.log
 docs/_dist/
 
 .yarn/*
+!.yarn/cache
 !.yarn/patches
 !.yarn/plugins
 !.yarn/releases
@@ -42,3 +43,7 @@ langchain/api_refs_docs_build/dist/**/*
 
 .docusaurus/
 docs/build/
+docs/api_refs/typedoc.json
+
+.tool-versions
+credentials.json

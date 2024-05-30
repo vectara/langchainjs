@@ -1,7 +1,7 @@
-import { ChatOpenAI } from "langchain/chat_models/openai";
+import { ChatOpenAI } from "@langchain/openai";
 import { initializeAgentExecutorWithOptions } from "langchain/agents";
-import { DadJokeAPI } from "langchain/tools";
 import { DiscordSendMessagesTool } from "@langchain/community/tools/discord";
+import { DadJokeAPI } from "@langchain/community/tools/dadjokeapi";
 
 const model = new ChatOpenAI({
   temperature: 0,
@@ -14,7 +14,7 @@ const executor = await initializeAgentExecutorWithOptions(tools, model, {
   verbose: true,
 });
 
-const res = await executor.call({
+const res = await executor.invoke({
   input: `Tell a joke in the discord channel`,
 });
 

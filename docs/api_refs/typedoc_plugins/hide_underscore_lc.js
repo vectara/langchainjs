@@ -7,7 +7,7 @@ const {
   RendererEvent,
 } = require("typedoc");
 const fs = require("fs");
-const path = require("path")
+const path = require("path");
 
 const PATH_TO_LANGCHAIN_PKG_JSON = "../../langchain/package.json";
 const BASE_OUTPUT_DIR = "./public";
@@ -20,9 +20,26 @@ const SCRIPT_HTML = `<script>
     }
   }, false); // Add event listener for keydown events
 </script>`;
+const VERSION_DROPDOWN_HTML = `<div class="version-select">
+<select id="version-dropdown" onchange="window.location.href=this.value;">
+  <option selected value="">v0.2</option>
+  <option value="https://v01.api.js.langchain.com/">v0.1</option>
+</select>
+</div>`;
 
 /**
- * @param {Application} application 
+ * @param {string | undefined} deprecationText
+ * @returns {string}
+ */
+const DEPRECATION_HTML = (deprecationText) => `<div class="deprecation-warning">
+<h2>⚠️ Deprecated ⚠️</h2>
+${deprecationText ? `<p>${deprecationText}</p>` : ""}
+<p>This feature is deprecated and will be removed in the future.</p>
+<p>It is not recommended for use.</p>
+</div>`;
+
+/**
+ * @param {Application} application
  * @returns {void}
  */
 function load(application) {
@@ -31,17 +48,19 @@ function load(application) {
    */
   let langchainVersion;
   try {
-    const langChainPackageJson = fs.readFileSync(PATH_TO_LANGCHAIN_PKG_JSON).toString();
+    const langChainPackageJson = fs
+      .readFileSync(PATH_TO_LANGCHAIN_PKG_JSON)
+      .toString();
     langchainVersion = JSON.parse(langChainPackageJson).version;
   } catch (e) {
-    throw new Error(`Error reading LangChain version for typedoc: ${e}`)
+    throw new Error(`Error reading LangChain version for typedoc: ${e}`);
   }
 
   /**
    * @type {Array<DeclarationReflection>}
    */
   let reflectionsToHide = [];
-  
+
   application.converter.on(
     Converter.EVENT_CREATE_DECLARATION,
     resolveReflection
@@ -49,7 +68,6 @@ function load(application) {
   application.converter.on(Converter.EVENT_RESOLVE_BEGIN, onBeginResolve);
 
   application.renderer.on(RendererEvent.BEGIN, onBeginRenderEvent);
-
 
   application.renderer.on(RendererEvent.END, onEndRenderEvent);
 
@@ -66,7 +84,7 @@ function load(application) {
   ];
 
   /**
-   * @param {Context} context 
+   * @param {Context} context
    * @returns {void}
    */
   function onBeginRenderEvent(context) {
@@ -77,7 +95,7 @@ function load(application) {
   }
 
   /**
-   * @param {Context} context 
+   * @param {Context} context
    * @returns {void}
    */
   function onBeginResolve(context) {
@@ -89,14 +107,11 @@ function load(application) {
   }
 
   /**
-   * @param {Context} _context 
-   * @param {DeclarationReflection} reflection 
+   * @param {Context} _context
+   * @param {DeclarationReflection} reflection
    * @returns {void}
    */
-  function resolveReflection(
-    _context,
-    reflection
-  ) {
+  function resolveReflection(_context, reflection) {
     const reflectionKind = reflection.kind;
     if (reflectionKindsToHide.includes(reflectionKind)) {
       if (
@@ -107,24 +122,61 @@ function load(application) {
       }
     }
     if (reflection.name.includes("/src")) {
-      reflection.name = reflection.name.replace("/src", "")
+      reflection.name = reflection.name.replace("/src", "");
     }
     if (reflection.name.startsWith("libs/")) {
-      reflection.name = reflection.name.replace("libs/", "")
+      reflection.name = reflection.name.replace("libs/", "");
     }
   }
 
   /**
-   * @param {Context} context 
+   * @param {Context} context
    */
-  function onEndRenderEvent(context) {
-    const rootIndex = context.urls[0].url;
-    const indexFilePath = path.join(BASE_OUTPUT_DIR, rootIndex);
-    const htmlToSplit = `<div class="tsd-toolbar-contents container">`;
-    const htmlFileContent = fs.readFileSync(indexFilePath, "utf-8");
-    const [part1, part2] = htmlFileContent.split(htmlToSplit);
-    const htmlWithScript = part1 + SCRIPT_HTML + part2;
-    fs.writeFileSync(indexFilePath, htmlWithScript);
+  async function onEndRenderEvent(context) {
+    const htmlToSplitAtSearchScript = `<div class="tsd-toolbar-contents container">`;
+    const htmlToSplitAtVersionDropdown = `<div id="tsd-toolbar-links">`;
+    const deprecatedHTML = "<h4>Deprecated</h4>";
+
+    const { urls } = context;
+    for (const { url } of urls) {
+      const indexFilePath = path.join(BASE_OUTPUT_DIR, url);
+      let htmlFileContent = fs.readFileSync(indexFilePath, "utf-8");
+
+      if (htmlFileContent.includes(deprecatedHTML)) {
+        // If any comments are added to the `@deprecated` JSDoc, they'll
+        // be inside the following <p> tag.
+        const deprecationTextRegex = new RegExp(
+          `${deprecatedHTML}<p>(.*?)</p>`
+        );
+        const deprecationTextMatch =
+          htmlFileContent.match(deprecationTextRegex);
+
+        /** @type {string | undefined} */
+        let textInsidePTag;
+
+        if (deprecationTextMatch) {
+          textInsidePTag = deprecationTextMatch[1];
+          const newTextToReplace = `${deprecatedHTML}<p>${textInsidePTag}</p>`;
+          htmlFileContent = htmlFileContent.replace(
+            newTextToReplace,
+            DEPRECATION_HTML(textInsidePTag)
+          );
+        } else {
+          htmlFileContent = htmlFileContent.replace(
+            deprecatedHTML,
+            DEPRECATION_HTML(undefined)
+          );
+        }
+      }
+
+      const [part1, part2] = htmlFileContent.split(htmlToSplitAtSearchScript);
+      const htmlWithScript = part1 + SCRIPT_HTML + part2;
+      const htmlWithDropdown = htmlWithScript.replace(
+        htmlToSplitAtVersionDropdown,
+        htmlToSplitAtVersionDropdown + VERSION_DROPDOWN_HTML
+      );
+      fs.writeFileSync(indexFilePath, htmlWithDropdown);
+    }
   }
 }
 

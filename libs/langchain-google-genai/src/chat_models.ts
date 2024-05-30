@@ -1,26 +1,62 @@
 import {
   GenerativeModel,
   GoogleGenerativeAI as GenerativeAI,
+  FunctionDeclarationsTool as GoogleGenerativeAIFunctionDeclarationsTool,
+  FunctionDeclaration as GenerativeAIFunctionDeclaration,
+  type FunctionDeclarationSchema as GenerativeAIFunctionDeclarationSchema,
+  GenerateContentRequest,
+  SafetySetting,
 } from "@google/generative-ai";
-import type { SafetySetting } from "@google/generative-ai";
 import { CallbackManagerForLLMRun } from "@langchain/core/callbacks/manager";
-import { BaseMessage } from "@langchain/core/messages";
+import { AIMessageChunk, BaseMessage } from "@langchain/core/messages";
 import { ChatGenerationChunk, ChatResult } from "@langchain/core/outputs";
 import { getEnvironmentVariable } from "@langchain/core/utils/env";
 import {
   BaseChatModel,
+  LangSmithParams,
   type BaseChatModelParams,
 } from "@langchain/core/language_models/chat_models";
+import { NewTokenIndices } from "@langchain/core/callbacks/base";
+import {
+  BaseLanguageModelCallOptions,
+  BaseLanguageModelInput,
+  StructuredOutputMethodOptions,
+} from "@langchain/core/language_models/base";
+import { StructuredToolInterface } from "@langchain/core/tools";
+import {
+  Runnable,
+  RunnablePassthrough,
+  RunnableSequence,
+} from "@langchain/core/runnables";
+import type { z } from "zod";
+import { isZodSchema } from "@langchain/core/utils/types";
+import { BaseLLMOutputParser } from "@langchain/core/output_parsers";
+import { zodToGenerativeAIParameters } from "./utils/zod_to_genai_parameters.js";
 import {
   convertBaseMessagesToContent,
   convertResponseContentToChatGenerationChunk,
+  convertToGenerativeAITools,
   mapGenerateContentResultToChatResult,
-} from "./utils.js";
+} from "./utils/common.js";
+import { GoogleGenerativeAIToolsOutputParser } from "./output_parsers.js";
+
+interface TokenUsage {
+  completionTokens?: number;
+  promptTokens?: number;
+  totalTokens?: number;
+}
 
 export type BaseMessageExamplePair = {
   input: BaseMessage;
   output: BaseMessage;
 };
+
+export interface GoogleGenerativeAIChatCallOptions
+  extends BaseLanguageModelCallOptions {
+  tools?:
+    | StructuredToolInterface[]
+    | GoogleGenerativeAIFunctionDeclarationsTool[];
+}
 
 /**
  * An interface defining the input to the ChatGoogleGenerativeAI class.
@@ -29,9 +65,17 @@ export interface GoogleGenerativeAIChatInput extends BaseChatModelParams {
   /**
    * Model Name to use
    *
+   * Alias for `model`
+   *
    * Note: The format must follow the pattern - `{model}`
    */
   modelName?: string;
+  /**
+   * Model Name to use
+   *
+   * Note: The format must follow the pattern - `{model}`
+   */
+  model?: string;
 
   /**
    * Controls the randomness of the output.
@@ -98,6 +142,19 @@ export interface GoogleGenerativeAIChatInput extends BaseChatModelParams {
    * Google API key to use
    */
   apiKey?: string;
+
+  /**
+   * Google API version to use
+   */
+  apiVersion?: string;
+
+  /**
+   * Google API base URL to use
+   */
+  baseUrl?: string;
+
+  /** Whether to stream the results or not */
+  streaming?: boolean;
 }
 
 /**
@@ -125,16 +182,16 @@ export interface GoogleGenerativeAIChatInput extends BaseChatModelParams {
  *     ]
  *   })
  * ];
- * const res = await model.call(questions);
+ * const res = await model.invoke(questions);
  * console.log({ res });
  * ```
  */
 export class ChatGoogleGenerativeAI
-  extends BaseChatModel
+  extends BaseChatModel<GoogleGenerativeAIChatCallOptions, AIMessageChunk>
   implements GoogleGenerativeAIChatInput
 {
   static lc_name() {
-    return "googlegenerativeai";
+    return "ChatGoogleGenerativeAI";
   }
 
   lc_serializable = true;
@@ -146,6 +203,8 @@ export class ChatGoogleGenerativeAI
   }
 
   modelName = "gemini-pro";
+
+  model = "gemini-pro";
 
   temperature?: number; // default value chosen based on model
 
@@ -161,17 +220,22 @@ export class ChatGoogleGenerativeAI
 
   apiKey?: string;
 
+  streaming = false;
+
   private client: GenerativeModel;
 
   get _isMultimodalModel() {
-    return this.modelName.includes("vision");
+    return this.model.includes("vision") || this.model.startsWith("gemini-1.5");
   }
 
   constructor(fields?: GoogleGenerativeAIChatInput) {
     super(fields ?? {});
 
     this.modelName =
-      fields?.modelName?.replace(/^models\//, "") ?? this.modelName;
+      fields?.model?.replace(/^models\//, "") ??
+      fields?.modelName?.replace(/^models\//, "") ??
+      this.model;
+    this.model = this.modelName;
 
     this.maxOutputTokens = fields?.maxOutputTokens ?? this.maxOutputTokens;
 
@@ -222,18 +286,37 @@ export class ChatGoogleGenerativeAI
       }
     }
 
-    this.client = new GenerativeAI(this.apiKey).getGenerativeModel({
-      model: this.modelName,
-      safetySettings: this.safetySettings as SafetySetting[],
-      generationConfig: {
-        candidateCount: 1,
-        stopSequences: this.stopSequences,
-        maxOutputTokens: this.maxOutputTokens,
-        temperature: this.temperature,
-        topP: this.topP,
-        topK: this.topK,
+    this.streaming = fields?.streaming ?? this.streaming;
+
+    this.client = new GenerativeAI(this.apiKey).getGenerativeModel(
+      {
+        model: this.model,
+        safetySettings: this.safetySettings as SafetySetting[],
+        generationConfig: {
+          candidateCount: 1,
+          stopSequences: this.stopSequences,
+          maxOutputTokens: this.maxOutputTokens,
+          temperature: this.temperature,
+          topP: this.topP,
+          topK: this.topK,
+        },
       },
-    });
+      {
+        apiVersion: fields?.apiVersion,
+        baseUrl: fields?.baseUrl,
+      }
+    );
+  }
+
+  protected getLsParams(options: this["ParsedCallOptions"]): LangSmithParams {
+    return {
+      ls_provider: "google_genai",
+      ls_model_name: this.model,
+      ls_model_type: "chat",
+      ls_temperature: this.client.generationConfig.temperature,
+      ls_max_tokens: this.client.generationConfig.maxOutputTokens,
+      ls_stop: options.stop,
+    };
   }
 
   _combineLLMOutput() {
@@ -242,6 +325,45 @@ export class ChatGoogleGenerativeAI
 
   _llmType() {
     return "googlegenerativeai";
+  }
+
+  override bindTools(
+    tools: (StructuredToolInterface | Record<string, unknown>)[],
+    kwargs?: Partial<GoogleGenerativeAIChatCallOptions>
+  ): Runnable<
+    BaseLanguageModelInput,
+    AIMessageChunk,
+    GoogleGenerativeAIChatCallOptions
+  > {
+    return this.bind({ tools: convertToGenerativeAITools(tools), ...kwargs });
+  }
+
+  invocationParams(
+    options?: this["ParsedCallOptions"]
+  ): Omit<GenerateContentRequest, "contents"> {
+    const tools = options?.tools as
+      | GoogleGenerativeAIFunctionDeclarationsTool[]
+      | StructuredToolInterface[]
+      | undefined;
+    if (
+      Array.isArray(tools) &&
+      !tools.some(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (t: any) => !("lc_namespace" in t)
+      )
+    ) {
+      // Tools are in StructuredToolInterface format. Convert to GenAI format
+      return {
+        tools: convertToGenerativeAITools(
+          options?.tools as StructuredToolInterface[]
+        ),
+      };
+    }
+    return {
+      tools: options?.tools as
+        | GoogleGenerativeAIFunctionDeclarationsTool[]
+        | undefined,
+    };
   }
 
   async _generate(
@@ -253,12 +375,36 @@ export class ChatGoogleGenerativeAI
       messages,
       this._isMultimodalModel
     );
+    const parameters = this.invocationParams(options);
+
+    // Handle streaming
+    if (this.streaming) {
+      const tokenUsage: TokenUsage = {};
+      const stream = this._streamResponseChunks(messages, options, runManager);
+      const finalChunks: Record<number, ChatGenerationChunk> = {};
+      for await (const chunk of stream) {
+        const index =
+          (chunk.generationInfo as NewTokenIndices)?.completion ?? 0;
+        if (finalChunks[index] === undefined) {
+          finalChunks[index] = chunk;
+        } else {
+          finalChunks[index] = finalChunks[index].concat(chunk);
+        }
+      }
+      const generations = Object.entries(finalChunks)
+        .sort(([aKey], [bKey]) => parseInt(aKey, 10) - parseInt(bKey, 10))
+        .map(([_, value]) => value);
+
+      return { generations, llmOutput: { estimatedTokenUsage: tokenUsage } };
+    }
+
     const res = await this.caller.callWithOptions(
       { signal: options?.signal },
       async () => {
         let output;
         try {
           output = await this.client.generateContent({
+            ...parameters,
             contents: prompt,
           });
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -288,10 +434,12 @@ export class ChatGoogleGenerativeAI
       messages,
       this._isMultimodalModel
     );
+    const parameters = this.invocationParams(options);
     const stream = await this.caller.callWithOptions(
       { signal: options?.signal },
       async () => {
         const { stream } = await this.client.generateContentStream({
+          ...parameters,
           contents: prompt,
         });
         return stream;
@@ -307,5 +455,136 @@ export class ChatGoogleGenerativeAI
       yield chunk;
       await runManager?.handleLLMNewToken(chunk.text ?? "");
     }
+  }
+
+  withStructuredOutput<
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    RunOutput extends Record<string, any> = Record<string, any>
+  >(
+    outputSchema:
+      | z.ZodType<RunOutput>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      | Record<string, any>,
+    config?: StructuredOutputMethodOptions<false>
+  ): Runnable<BaseLanguageModelInput, RunOutput>;
+
+  withStructuredOutput<
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    RunOutput extends Record<string, any> = Record<string, any>
+  >(
+    outputSchema:
+      | z.ZodType<RunOutput>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      | Record<string, any>,
+    config?: StructuredOutputMethodOptions<true>
+  ): Runnable<BaseLanguageModelInput, { raw: BaseMessage; parsed: RunOutput }>;
+
+  withStructuredOutput<
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    RunOutput extends Record<string, any> = Record<string, any>
+  >(
+    outputSchema:
+      | z.ZodType<RunOutput>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      | Record<string, any>,
+    config?: StructuredOutputMethodOptions<boolean>
+  ):
+    | Runnable<BaseLanguageModelInput, RunOutput>
+    | Runnable<
+        BaseLanguageModelInput,
+        { raw: BaseMessage; parsed: RunOutput }
+      > {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const schema: z.ZodType<RunOutput> | Record<string, any> = outputSchema;
+    const name = config?.name;
+    const method = config?.method;
+    const includeRaw = config?.includeRaw;
+    if (method === "jsonMode") {
+      throw new Error(
+        `ChatGoogleGenerativeAI only supports "functionCalling" as a method.`
+      );
+    }
+
+    let functionName = name ?? "extract";
+    let outputParser: BaseLLMOutputParser<RunOutput>;
+    let tools: GoogleGenerativeAIFunctionDeclarationsTool[];
+    if (isZodSchema(schema)) {
+      const jsonSchema = zodToGenerativeAIParameters(schema);
+      tools = [
+        {
+          functionDeclarations: [
+            {
+              name: functionName,
+              description:
+                jsonSchema.description ?? "A function available to call.",
+              parameters: jsonSchema as GenerativeAIFunctionDeclarationSchema,
+            },
+          ],
+        },
+      ];
+      outputParser = new GoogleGenerativeAIToolsOutputParser<
+        z.infer<typeof schema>
+      >({
+        returnSingle: true,
+        keyName: functionName,
+        zodSchema: schema,
+      });
+    } else {
+      let geminiFunctionDefinition: GenerativeAIFunctionDeclaration;
+      if (
+        typeof schema.name === "string" &&
+        typeof schema.parameters === "object" &&
+        schema.parameters != null
+      ) {
+        geminiFunctionDefinition = schema as GenerativeAIFunctionDeclaration;
+        functionName = schema.name;
+      } else {
+        geminiFunctionDefinition = {
+          name: functionName,
+          description: schema.description ?? "",
+          parameters: schema as GenerativeAIFunctionDeclarationSchema,
+        };
+      }
+      tools = [
+        {
+          functionDeclarations: [geminiFunctionDefinition],
+        },
+      ];
+      outputParser = new GoogleGenerativeAIToolsOutputParser<RunOutput>({
+        returnSingle: true,
+        keyName: functionName,
+      });
+    }
+    const llm = this.bind({
+      tools,
+    });
+
+    if (!includeRaw) {
+      return llm.pipe(outputParser).withConfig({
+        runName: "ChatGoogleGenerativeAIStructuredOutput",
+      }) as Runnable<BaseLanguageModelInput, RunOutput>;
+    }
+
+    const parserAssign = RunnablePassthrough.assign({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      parsed: (input: any, config) => outputParser.invoke(input.raw, config),
+    });
+    const parserNone = RunnablePassthrough.assign({
+      parsed: () => null,
+    });
+    const parsedWithFallback = parserAssign.withFallbacks({
+      fallbacks: [parserNone],
+    });
+    return RunnableSequence.from<
+      BaseLanguageModelInput,
+      { raw: BaseMessage; parsed: RunOutput }
+    >([
+      {
+        raw: llm,
+      },
+      parsedWithFallback,
+    ]).withConfig({
+      runName: "StructuredOutputRunnable",
+    });
   }
 }

@@ -1,8 +1,8 @@
 import { expect, test } from "@jest/globals";
-import { TextLoader } from "../../document_loaders/fs/text.js";
+import { OpenAIEmbeddings } from "@langchain/openai";
 import { InMemoryDocstore } from "../../stores/doc/in_memory.js";
+import { TextLoader } from "../../document_loaders/fs/text.js";
 import { InMemoryStore } from "../../storage/in_memory.js";
-import { OpenAIEmbeddings } from "../../embeddings/openai.js";
 import { MemoryVectorStore } from "../../vectorstores/memory.js";
 import { ParentDocumentRetriever } from "../parent_document.js";
 import { RecursiveCharacterTextSplitter } from "../../text_splitter.js";

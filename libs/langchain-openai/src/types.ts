@@ -38,8 +38,13 @@ export declare interface OpenAIBaseInput {
   /** Whether to stream the results or not. Enabling disables tokenUsage reporting */
   streaming: boolean;
 
-  /** Model name to use */
+  /**
+   * Model name to use
+   * Alias for `model`
+   */
   modelName: string;
+  /** Model name to use */
+  model: string;
 
   /** Holds any additional parameters that are valid to pass to {@link
    * https://platform.openai.com/docs/api-reference/completions/create |
@@ -48,8 +53,13 @@ export declare interface OpenAIBaseInput {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   modelKwargs?: Record<string, any>;
 
-  /** List of stop words to use when generating */
+  /**
+   * List of stop words to use when generating
+   * Alias for `stopSequences`
+   */
   stop?: string[];
+  /** List of stop words to use when generating */
+  stopSequences?: string[];
 
   /**
    * Timeout to use when making requests to OpenAI.
@@ -59,8 +69,14 @@ export declare interface OpenAIBaseInput {
   /**
    * API key to use when making requests to OpenAI. Defaults to the value of
    * `OPENAI_API_KEY` environment variable.
+   * Alias for `apiKey`
    */
   openAIApiKey?: string;
+  /**
+   * API key to use when making requests to OpenAI. Defaults to the value of
+   * `OPENAI_API_KEY` environment variable.
+   */
+  apiKey?: string;
 }
 
 // TODO use OpenAI.Core.RequestOptions when SDK is updated to make it available
@@ -113,6 +129,18 @@ export interface LegacyOpenAIInput {
 }
 
 export interface OpenAIChatInput extends OpenAIBaseInput {
+  /**
+   * Whether to return log probabilities of the output tokens or not.
+   * If true, returns the log probabilities of each output token returned in the content of message.
+   */
+  logprobs?: boolean;
+
+  /**
+   * An integer between 0 and 5 specifying the number of most likely tokens to return at each token position,
+   * each with an associated log probability. logprobs must be set to true if this parameter is used.
+   */
+  topLogprobs?: number;
+
   /** ChatGPT messages to pass as a prefix to the prompt */
   prefixMessages?: OpenAIClient.Chat.CreateChatCompletionRequestMessage[];
 }
@@ -169,4 +197,10 @@ export declare interface AzureOpenAIInput {
    * will be result in the endpoint URL: https://westeurope.api.cognitive.microsoft.com/openai/deployments/{DeploymentName}/
    */
   azureOpenAIBasePath?: string;
+
+  /**
+   * A function that returns an access token for Microsoft Entra (formerly known as Azure Active Directory),
+   * which will be invoked on every request.
+   */
+  azureADTokenProvider?: () => Promise<string>;
 }

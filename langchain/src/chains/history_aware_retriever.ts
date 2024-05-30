@@ -1,5 +1,6 @@
 import type { LanguageModelLike } from "@langchain/core/language_models/base";
 import {
+  type Runnable,
   type RunnableInterface,
   RunnableSequence,
   RunnableBranch,
@@ -7,12 +8,12 @@ import {
 import { type BasePromptTemplate } from "@langchain/core/prompts";
 import { StringOutputParser } from "@langchain/core/output_parsers";
 import type { DocumentInterface } from "@langchain/core/documents";
-import type { BaseMessage } from "../schema/index.js";
+import type { BaseMessage } from "@langchain/core/messages";
 
 /**
  * Params for the createHistoryAwareRetriever method.
  */
-export type CreateHistoryAwareRetriever = {
+export type CreateHistoryAwareRetrieverParams = {
   /**
    * Language model to use for generating a search term given chat history.
    */
@@ -42,13 +43,12 @@ export type CreateHistoryAwareRetriever = {
  *
  * import { ChatOpenAI } from "@langchain/openai";
  * import { pull } from "langchain/hub";
- * import { createRetrievalChain } from "langchain/chains/retrieval";
- * import { createStuffDocumentsChain } from "langchain/chains/combine_documents";
+ * import { createHistoryAwareRetriever } from "langchain/chains/history_aware_retriever";
  *
  * const rephrasePrompt = await pull("langchain-ai/chat-langchain-rephrase");
  * const llm = new ChatOpenAI({});
  * const retriever = ...
- * const historyAwareRetrieverChain = await createHistoryAwareRetriever({
+ * const chain = await createHistoryAwareRetriever({
  *   llm,
  *   retriever,
  *   rephrasePrompt,
@@ -60,8 +60,8 @@ export async function createHistoryAwareRetriever({
   llm,
   retriever,
   rephrasePrompt,
-}: CreateHistoryAwareRetriever): Promise<
-  RunnableInterface<
+}: CreateHistoryAwareRetrieverParams): Promise<
+  Runnable<
     { input: string; chat_history: string | BaseMessage[] },
     DocumentInterface[]
   >

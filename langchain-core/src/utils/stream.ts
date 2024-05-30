@@ -1,6 +1,10 @@
-export interface IterableReadableStreamInterface<T>
-  extends ReadableStream<T>,
-    AsyncGenerator<T> {}
+// Make this a type to override ReadableStream's async iterator type in case
+// the popular web-streams-polyfill is imported - the supplied types
+import { AsyncLocalStorageProviderSingleton } from "../singletons/index.js";
+
+// in this case don't quite match.
+export type IterableReadableStreamInterface<T> = ReadableStream<T> &
+  AsyncIterable<T>;
 
 /*
  * Support async iterator syntax for ReadableStreams in all environments.
@@ -18,22 +22,29 @@ export class IterableReadableStream<T>
     }
   }
 
-  async next() {
+  async next(): Promise<IteratorResult<T>> {
     this.ensureReader();
     try {
       const result = await this.reader.read();
-      if (result.done) this.reader.releaseLock(); // release lock when stream becomes closed
-      return {
-        done: result.done,
-        value: result.value as T, // Cloudflare Workers typing fix
-      };
+      if (result.done) {
+        this.reader.releaseLock(); // release lock when stream becomes closed
+        return {
+          done: true,
+          value: undefined,
+        };
+      } else {
+        return {
+          done: false,
+          value: result.value,
+        };
+      }
     } catch (e) {
       this.reader.releaseLock(); // release lock when stream becomes errored
       throw e;
     }
   }
 
-  async return() {
+  async return(): Promise<IteratorResult<T>> {
     this.ensureReader();
     // If wrapped in a Node stream, cancel is already called.
     if (this.locked) {
@@ -41,7 +52,7 @@ export class IterableReadableStream<T>
       this.reader.releaseLock(); // release lock first
       await cancelPromise; // now await it
     }
-    return { done: true, value: undefined as T }; // This cast fixes TS typing, and convention is to ignore final chunk value anyway
+    return { done: true, value: undefined };
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -95,6 +106,9 @@ export class IterableReadableStream<T>
         // Fix: `else if (value)` will hang the streaming when nullish value (e.g. empty string) is pulled
         controller.enqueue(value);
       },
+      async cancel(reason) {
+        await generator.return(reason);
+      },
     });
   }
 }
@@ -147,7 +161,7 @@ export function concat<
     const chunk = { ...first } as Record<string, any>;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const [key, value] of Object.entries(second as Record<string, any>)) {
-      if (key in chunk) {
+      if (key in chunk && !Array.isArray(chunk[key])) {
         chunk[key] = concat(chunk[key], value);
       } else {
         chunk[key] = value;
@@ -170,19 +184,33 @@ export class AsyncGeneratorWithSetup<
 
   public setup: Promise<S>;
 
+  public config?: unknown;
+
   private firstResult: Promise<IteratorResult<T>>;
 
   private firstResultUsed = false;
 
-  constructor(generator: AsyncGenerator<T>, startSetup: () => Promise<S>) {
-    this.generator = generator;
+  constructor(params: {
+    generator: AsyncGenerator<T>;
+    startSetup?: () => Promise<S>;
+    config?: unknown;
+  }) {
+    this.generator = params.generator;
+    this.config = params.config;
     // setup is a promise that resolves only after the first iterator value
     // is available. this is useful when setup of several piped generators
     // needs to happen in logical order, ie. in the order in which input to
     // to each generator is available.
     this.setup = new Promise((resolve, reject) => {
-      this.firstResult = generator.next();
-      this.firstResult.then(startSetup).then(resolve, reject);
+      const storage = AsyncLocalStorageProviderSingleton.getInstance();
+      void storage.run(params.config, async () => {
+        this.firstResult = params.generator.next();
+        if (params.startSetup) {
+          this.firstResult.then(params.startSetup).then(resolve, reject);
+        } else {
+          this.firstResult.then((_result) => resolve(undefined as S), reject);
+        }
+      });
     });
   }
 
@@ -192,7 +220,10 @@ export class AsyncGeneratorWithSetup<
       return this.firstResult;
     }
 
-    return this.generator.next(...args);
+    const storage = AsyncLocalStorageProviderSingleton.getInstance();
+    return storage.run(this.config, async () => {
+      return this.generator.next(...args);
+    });
   }
 
   async return(
@@ -229,7 +260,7 @@ export async function pipeGeneratorWithSetup<
   startSetup: () => Promise<S>,
   ...args: A
 ) {
-  const gen = new AsyncGeneratorWithSetup(generator, startSetup);
+  const gen = new AsyncGeneratorWithSetup({ generator, startSetup });
   const setup = await gen.setup;
   return { output: to(gen, setup, ...args), setup };
 }

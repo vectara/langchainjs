@@ -7,21 +7,21 @@ import type { ChainValues } from "@langchain/core/utils/types";
 import type { Generation } from "@langchain/core/outputs";
 import type { BaseMessage } from "@langchain/core/messages";
 import type { BasePromptValueInterface } from "@langchain/core/prompt_values";
-import { BaseChain, ChainInputs } from "./base.js";
-import { BasePromptTemplate } from "../prompts/base.js";
+import { BasePromptTemplate } from "@langchain/core/prompts";
 import {
   BaseLLMOutputParser,
   BaseOutputParser,
-} from "../schema/output_parser.js";
-import { SerializedLLMChain } from "./serde.js";
-import { CallbackManager } from "../callbacks/index.js";
+} from "@langchain/core/output_parsers";
 import {
+  CallbackManager,
   BaseCallbackConfig,
   CallbackManagerForChainRun,
   Callbacks,
-} from "../callbacks/manager.js";
+} from "@langchain/core/callbacks/manager";
+import { Runnable, type RunnableInterface } from "@langchain/core/runnables";
+import { BaseChain, ChainInputs } from "./base.js";
+import { SerializedLLMChain } from "./serde.js";
 import { NoOpOutputParser } from "../output_parsers/noop.js";
-import { Runnable, type RunnableInterface } from "../schema/runnable/base.js";
 
 type LLMType =
   | BaseLanguageModelInterface
@@ -72,16 +72,21 @@ function _getLanguageModel(llmLike: RunnableInterface): BaseLanguageModel {
 }
 
 /**
+ * @deprecated This class will be removed in 0.3.0. Use the LangChain Expression Language (LCEL) instead.
+ * See the example below for how to use LCEL with the LLMChain class:
+ *
  * Chain to run queries against LLMs.
  *
  * @example
  * ```ts
- * import { LLMChain } from "langchain/chains";
- * import { OpenAI } from "langchain/llms/openai";
- * import { PromptTemplate } from "langchain/prompts";
+ * import { ChatPromptTemplate } from "@langchain/core/prompts";
+ * import { ChatOpenAI } from "@langchain/openai";
  *
- * const prompt = PromptTemplate.fromTemplate("Tell me a {adjective} joke");
- * const llm = new LLMChain({ llm: new OpenAI(), prompt });
+ * const prompt = ChatPromptTemplate.fromTemplate("Tell me a {adjective} joke");
+ * const llm = new ChatOpenAI();
+ * const chain = prompt.pipe(llm);
+ *
+ * const response = await chain.invoke({ adjective: "funny" });
  * ```
  */
 export class LLMChain<

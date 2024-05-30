@@ -24,6 +24,8 @@ export interface OpenAIChatCallOptions extends OpenAICallOptions {
 }
 
 /**
+ * @deprecated For legacy compatibility. Use ChatOpenAI instead.
+ *
  * Wrapper around OpenAI large language models that use the Chat endpoint.
  *
  * To use you should have the `openai` package installed, with the
@@ -56,7 +58,7 @@ export interface OpenAIChatCallOptions extends OpenAICallOptions {
  *   maxTokens: 50,
  * });
  *
- * const res = await model.call(
+ * const res = await model.invoke(
  *   "What would be a good company name for a company that makes colorful socks?"
  * );
  * console.log({ res });
@@ -110,6 +112,8 @@ export class OpenAIChat
   maxTokens?: number;
 
   modelName = "gpt-3.5-turbo";
+
+  model = "gpt-3.5-turbo";
 
   prefixMessages?: OpenAIClient.Chat.ChatCompletionMessageParam[];
 

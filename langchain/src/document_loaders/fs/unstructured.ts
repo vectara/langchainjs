@@ -1,14 +1,20 @@
 import type { basename as BasenameT } from "node:path";
 import type { readFile as ReadFileT } from "node:fs/promises";
+import { Document } from "@langchain/core/documents";
+import { getEnv } from "@langchain/core/utils/env";
+import { StringWithAutocomplete } from "@langchain/core/utils/types";
 import {
   DirectoryLoader,
   UnknownHandling,
   LoadersMapping,
 } from "./directory.js";
-import { getEnv } from "../../util/env.js";
-import { Document } from "../../document.js";
 import { BaseDocumentLoader } from "../base.js";
-import type { StringWithAutocomplete } from "../../util/types.js";
+import { logVersion020MigrationWarning } from "../../util/entrypoint_deprecation.js";
+
+/* #__PURE__ */ logVersion020MigrationWarning({
+  oldEntrypointName: "document_loaders/fs/unstructured",
+  newPackageName: "@langchain/community",
+});
 
 const UNSTRUCTURED_API_FILETYPES = [
   ".txt",
@@ -109,6 +115,10 @@ export type UnstructuredLoaderOptions = {
   hiResModelName?: StringWithAutocomplete<HiResModelName>;
   includePageBreaks?: boolean;
   chunkingStrategy?: StringWithAutocomplete<ChunkingStrategy>;
+  multiPageSections?: boolean;
+  combineUnderNChars?: number;
+  newAfterNChars?: number;
+  maxCharacters?: number;
 };
 
 type UnstructuredDirectoryLoaderOptions = UnstructuredLoaderOptions & {
@@ -117,6 +127,8 @@ type UnstructuredDirectoryLoaderOptions = UnstructuredLoaderOptions & {
 };
 
 /**
+ * @deprecated - Import from "@langchain/community/document_loaders/fs/unstructured" instead. This entrypoint will be removed in 0.3.0.
+ *
  * A document loader that uses the Unstructured API to load unstructured
  * documents. It supports both the new syntax with options object and the
  * legacy syntax for backward compatibility. The load() method sends a
@@ -154,6 +166,14 @@ export class UnstructuredLoader extends BaseDocumentLoader {
 
   private chunkingStrategy?: StringWithAutocomplete<ChunkingStrategy>;
 
+  private multiPageSections?: boolean;
+
+  private combineUnderNChars?: number;
+
+  private newAfterNChars?: number;
+
+  private maxCharacters?: number;
+
   constructor(
     filePathOrLegacyApiUrl: string,
     optionsOrLegacyFilePath: UnstructuredLoaderOptions | string = {}
@@ -181,6 +201,10 @@ export class UnstructuredLoader extends BaseDocumentLoader {
       this.hiResModelName = options.hiResModelName;
       this.includePageBreaks = options.includePageBreaks;
       this.chunkingStrategy = options.chunkingStrategy;
+      this.multiPageSections = options.multiPageSections;
+      this.combineUnderNChars = options.combineUnderNChars;
+      this.newAfterNChars = options.newAfterNChars;
+      this.maxCharacters = options.maxCharacters;
     }
   }
 
@@ -226,6 +250,21 @@ export class UnstructuredLoader extends BaseDocumentLoader {
     if (this.chunkingStrategy) {
       formData.append("chunking_strategy", this.chunkingStrategy);
     }
+    if (this.multiPageSections !== undefined) {
+      formData.append(
+        "multipage_sections",
+        this.multiPageSections ? "true" : "false"
+      );
+    }
+    if (this.combineUnderNChars !== undefined) {
+      formData.append("combine_under_n_chars", String(this.combineUnderNChars));
+    }
+    if (this.newAfterNChars !== undefined) {
+      formData.append("new_after_n_chars", String(this.newAfterNChars));
+    }
+    if (this.maxCharacters !== undefined) {
+      formData.append("max_characters", String(this.maxCharacters));
+    }
 
     const headers = {
       "UNSTRUCTURED-API-KEY": this.apiKey ?? "",
@@ -260,7 +299,7 @@ export class UnstructuredLoader extends BaseDocumentLoader {
     const documents: Document[] = [];
     for (const element of elements) {
       const { metadata, text } = element;
-      if (typeof text === "string") {
+      if (typeof text === "string" && text !== "") {
         documents.push(
           new Document({
             pageContent: text,

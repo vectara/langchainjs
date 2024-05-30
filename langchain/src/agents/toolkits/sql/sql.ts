@@ -1,14 +1,13 @@
 import type { BaseLanguageModelInterface } from "@langchain/core/language_models/base";
-import type { ToolInterface } from "@langchain/core/tools";
+import { type ToolInterface, BaseToolkit } from "@langchain/core/tools";
+import { renderTemplate } from "@langchain/core/prompts";
 import {
   InfoSqlTool,
   ListTablesSqlTool,
   QueryCheckerTool,
   QuerySqlTool,
 } from "../../../tools/sql.js";
-import { Toolkit } from "../base.js";
 import { SQL_PREFIX, SQL_SUFFIX } from "./prompt.js";
-import { renderTemplate } from "../../../prompts/template.js";
 import { LLMChain } from "../../../chains/llm_chain.js";
 import { ZeroShotAgent, ZeroShotCreatePromptArgs } from "../../mrkl/index.js";
 import { AgentExecutor } from "../../executor.js";
@@ -35,7 +34,7 @@ export interface SqlCreatePromptArgs extends ZeroShotCreatePromptArgs {
  * console.log(`Got output ${result.output}`);
  * ```
  */
-export class SqlToolkit extends Toolkit {
+export class SqlToolkit extends BaseToolkit {
   tools: ToolInterface[];
 
   db: SqlDatabase;

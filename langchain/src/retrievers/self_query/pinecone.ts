@@ -1,6 +1,16 @@
-import { Comparators, Operators } from "../../chains/query_constructor/ir.js";
-import { PineconeStore } from "../../vectorstores/pinecone.js";
-import { BasicTranslator } from "./base.js";
+import type { VectorStoreInterface } from "@langchain/core/vectorstores";
+import {
+  BasicTranslator,
+  Comparators,
+  Operators,
+} from "@langchain/core/structured_query";
+import { logVersion020MigrationWarning } from "../../util/entrypoint_deprecation.js";
+
+/* #__PURE__ */ logVersion020MigrationWarning({
+  oldEntrypointName: "retrievers/self_query/pinecone",
+  newEntrypointName: "",
+  newPackageName: "@langchain/pinecone",
+});
 
 /**
  * Specialized translator class that extends the BasicTranslator. It is
@@ -10,7 +20,7 @@ import { BasicTranslator } from "./base.js";
  * queries and compare results.
  * @example
  * ```typescript
- * const selfQueryRetriever = await SelfQueryRetriever.fromLLM({
+ * const selfQueryRetriever = SelfQueryRetriever.fromLLM({
  *   llm: new ChatOpenAI(),
  *   vectorStore: new PineconeStore(),
  *   documentContents: "Brief summary of a movie",
@@ -24,7 +34,7 @@ import { BasicTranslator } from "./base.js";
  * ```
  */
 export class PineconeTranslator<
-  T extends PineconeStore
+  T extends VectorStoreInterface
 > extends BasicTranslator<T> {
   constructor() {
     super({

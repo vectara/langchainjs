@@ -1,5 +1,5 @@
 import * as uuid from "uuid";
-import type { ChainValues } from "../utils/types.js";
+import type { ChainValues } from "../utils/types/index.js";
 import type { BaseMessage } from "../messages/index.js";
 import type { AgentAction, AgentFinish } from "../agents.js";
 import type {
@@ -15,6 +15,7 @@ import {
 } from "../load/serializable.js";
 import type { SerializedFields } from "../load/map_keys.js";
 import type { DocumentInterface } from "../documents/document.js";
+import { getEnvironmentVariable } from "../utils/env.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Error = any;
@@ -29,6 +30,8 @@ export interface BaseCallbackHandlerInput {
   ignoreChain?: boolean;
   ignoreAgent?: boolean;
   ignoreRetriever?: boolean;
+  _awaitHandler?: boolean;
+  raiseError?: boolean;
 }
 
 /**
@@ -329,11 +332,10 @@ export abstract class BaseCallbackHandler
 
   ignoreRetriever = false;
 
+  raiseError = false;
+
   awaitHandlers =
-    typeof process !== "undefined"
-      ? // eslint-disable-next-line no-process-env
-        process.env?.LANGCHAIN_CALLBACKS_BACKGROUND !== "true"
-      : true;
+    getEnvironmentVariable("LANGCHAIN_CALLBACKS_BACKGROUND") !== "true";
 
   constructor(input?: BaseCallbackHandlerInput) {
     super();
@@ -343,6 +345,9 @@ export abstract class BaseCallbackHandler
       this.ignoreChain = input.ignoreChain ?? this.ignoreChain;
       this.ignoreAgent = input.ignoreAgent ?? this.ignoreAgent;
       this.ignoreRetriever = input.ignoreRetriever ?? this.ignoreRetriever;
+      this.raiseError = input.raiseError ?? this.raiseError;
+      this.awaitHandlers =
+        this.raiseError || (input._awaitHandler ?? this.awaitHandlers);
     }
   }
 

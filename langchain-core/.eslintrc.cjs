@@ -16,6 +16,7 @@ module.exports = {
     "src/utils/@cfworker",
     "src/utils/fast-json-patch",
     "src/utils/js-sha1",
+    "src/utils/sax-js",
     ".eslintrc.cjs",
     "scripts",
     "node_modules",
@@ -36,6 +37,7 @@ module.exports = {
     "@typescript-eslint/no-unused-vars": ["warn", { args: "none" }],
     "@typescript-eslint/no-floating-promises": "error",
     "@typescript-eslint/no-misused-promises": "error",
+    "@typescript-eslint/no-this-alias": 0,
     camelcase: 0,
     "class-methods-use-this": 0,
     "import/extensions": [2, "ignorePackages"],
@@ -67,5 +69,15 @@ module.exports = {
     "prefer-rest-params": 0,
     "new-cap": ["error", { properties: false, capIsNew: false }],
     'jest/no-focused-tests': 'error',
+    "arrow-body-style": 0,
+    "prefer-destructuring": 0,
   },
+  overrides: [
+    {
+      files: ['**/*.test.ts'],
+      rules: {
+        '@typescript-eslint/no-unused-vars': 'off'
+      }
+    }
+  ]
 };

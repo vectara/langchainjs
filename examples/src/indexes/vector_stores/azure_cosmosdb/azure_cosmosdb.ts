@@ -2,10 +2,12 @@ import {
   AzureCosmosDBVectorStore,
   AzureCosmosDBSimilarityType,
 } from "@langchain/community/vectorstores/azure_cosmosdb";
+import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { ChatOpenAI, OpenAIEmbeddings } from "@langchain/openai";
-import { RetrievalQAChain } from "langchain/chains";
+import { createStuffDocumentsChain } from "langchain/chains/combine_documents";
+import { createRetrievalChain } from "langchain/chains/retrieval";
 import { TextLoader } from "langchain/document_loaders/fs/text";
-import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
+import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 
 // Load documents from file
 const loader = new TextLoader("./state_of_the_union.txt");
@@ -23,14 +25,13 @@ const store = await AzureCosmosDBVectorStore.fromDocuments(
   {
     databaseName: "langchain",
     collectionName: "documents",
+    indexOptions: {
+      numLists: 100,
+      dimensions: 1536,
+      similarity: AzureCosmosDBSimilarityType.COS,
+    },
   }
 );
-
-// Create the index
-const numLists = 100;
-const dimensions = 1536;
-const similarity = AzureCosmosDBSimilarityType.COS;
-await store.createIndex(numLists, dimensions, similarity);
 
 // Performs a similarity search
 const resultDocuments = await store.similaritySearch(
@@ -50,14 +51,31 @@ console.log(resultDocuments[0].pageContent);
 */
 
 // Use the store as part of a chain
-const model = new ChatOpenAI({ modelName: "gpt-35-turbo" });
-const chain = RetrievalQAChain.fromLLM(model, store.asRetriever());
-const response = await chain.call({
-  query: "What is the president's top priority regarding prices?",
+const model = new ChatOpenAI({ model: "gpt-3.5-turbo-1106" });
+const questionAnsweringPrompt = ChatPromptTemplate.fromMessages([
+  [
+    "system",
+    "Answer the user's questions based on the below context:\n\n{context}",
+  ],
+  ["human", "{input}"],
+]);
+
+const combineDocsChain = await createStuffDocumentsChain({
+  llm: model,
+  prompt: questionAnsweringPrompt,
+});
+
+const chain = await createRetrievalChain({
+  retriever: store.asRetriever(),
+  combineDocsChain,
+});
+
+const res = await chain.invoke({
+  input: "What is the president's top priority regarding prices?",
 });
 
 console.log("Chain response:");
-console.log(response.text);
+console.log(res.answer);
 /*
   The president's top priority is getting prices under control.
 */

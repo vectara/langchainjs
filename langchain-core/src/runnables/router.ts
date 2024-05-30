@@ -1,6 +1,6 @@
 import { Runnable, type RunnableBatchOptions } from "./base.js";
 import { IterableReadableStream } from "../utils/stream.js";
-import type { RunnableConfig } from "./config.js";
+import { ensureConfig, type RunnableConfig } from "./config.js";
 
 export type RouterInput = {
   key: string;
@@ -43,7 +43,7 @@ export class RouterRunnable<
     if (runnable === undefined) {
       throw new Error(`No runnable associated with key "${key}".`);
     }
-    return runnable.invoke(actualInput, options);
+    return runnable.invoke(actualInput, ensureConfig(options));
   }
 
   async batch(
@@ -77,10 +77,10 @@ export class RouterRunnable<
     }
     const runnables = keys.map((key) => this.runnables[key]);
     const optionsList = this._getOptionsList(options ?? {}, inputs.length);
+    const maxConcurrency =
+      optionsList[0]?.maxConcurrency ?? batchOptions?.maxConcurrency;
     const batchSize =
-      batchOptions?.maxConcurrency && batchOptions.maxConcurrency > 0
-        ? batchOptions?.maxConcurrency
-        : inputs.length;
+      maxConcurrency && maxConcurrency > 0 ? maxConcurrency : inputs.length;
     const batchResults = [];
     for (let i = 0; i < actualInputs.length; i += batchSize) {
       const batchPromises = actualInputs

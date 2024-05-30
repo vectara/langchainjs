@@ -1,22 +1,26 @@
 import { AgentExecutor } from "langchain/agents";
-import { ChatOpenAI } from "langchain/chat_models/openai";
-import { ChatPromptTemplate, MessagesPlaceholder } from "langchain/prompts";
+import { ChatOpenAI } from "@langchain/openai";
+import { Calculator } from "@langchain/community/tools/calculator";
+import { OpenAIFunctionsAgentOutputParser } from "langchain/agents/openai/output_parser";
+import { convertToOpenAIFunction } from "@langchain/core/utils/function_calling";
+import {
+  ChatPromptTemplate,
+  MessagesPlaceholder,
+} from "@langchain/core/prompts";
 import {
   AIMessage,
-  AgentStep,
   BaseMessage,
   FunctionMessage,
-} from "langchain/schema";
-import { RunnableSequence } from "langchain/schema/runnable";
-import { SerpAPI, formatToOpenAIFunction } from "langchain/tools";
-import { Calculator } from "langchain/tools/calculator";
-import { OpenAIFunctionsAgentOutputParser } from "langchain/agents/openai/output_parser";
+} from "@langchain/core/messages";
+import { AgentStep } from "@langchain/core/agents";
+import { RunnableSequence } from "@langchain/core/runnables";
+import { SerpAPI } from "@langchain/community/tools/serpapi";
 
 /** Define your list of tools. */
 const tools = [new Calculator(), new SerpAPI()];
 
 const model = new ChatOpenAI({
-  modelName: "gpt-4",
+  model: "gpt-4",
   streaming: true,
   temperature: 0,
 });
@@ -28,7 +32,7 @@ const prompt = ChatPromptTemplate.fromMessages([
 ]);
 
 const modelWithFunctions = model.bind({
-  functions: [...tools.map((tool) => formatToOpenAIFunction(tool))],
+  functions: [...tools.map((tool) => convertToOpenAIFunction(tool))],
 });
 
 const formatAgentSteps = (steps: AgentStep[]): BaseMessage[] =>
